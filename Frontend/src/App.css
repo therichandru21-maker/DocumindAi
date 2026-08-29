@@ -25,10 +25,8 @@
   --blue: #087ea4;
   --blue-dark: #06627f;
   --cyan: #06b6d4;
-
   --bg: #f3f8fc;
   --card: #ffffff;
-
   --border: #dce8ef;
   --text: #172033;
   --muted: #718096;
@@ -76,13 +74,11 @@ textarea {
 .header-content {
   max-width: 1180px;
   margin: 0 auto;
-
   padding: 22px 24px;
 
   display: flex;
   align-items: center;
   justify-content: space-between;
-
   gap: 20px;
 }
 
@@ -117,7 +113,6 @@ textarea {
 
 .brand p {
   margin-top: 4px;
-
   color: #a9bdcc;
   font-size: 13px;
 }
@@ -128,11 +123,9 @@ textarea {
   gap: 8px;
 
   padding: 8px 13px;
-
   border-radius: 999px;
 
   color: #b9f5ff;
-
   background: rgba(6, 182, 212, 0.1);
   border: 1px solid rgba(6, 182, 212, 0.2);
 
@@ -145,7 +138,6 @@ textarea {
   height: 7px;
 
   border-radius: 50%;
-
   background: #22d3ee;
 
   box-shadow:
@@ -161,7 +153,6 @@ textarea {
   max-width: 1180px;
 
   margin: 0 auto;
-
   padding: 36px 24px 60px;
 }
 
@@ -204,7 +195,6 @@ textarea {
 
   font-size: 11px;
   font-weight: 800;
-
   letter-spacing: 1.4px;
 }
 
@@ -212,7 +202,6 @@ textarea {
   color: #102a43;
 
   font-size: clamp(30px, 4vw, 46px);
-
   line-height: 1.08;
 
   letter-spacing: -1.8px;
@@ -260,7 +249,6 @@ textarea {
 
 .card {
   margin-bottom: 24px;
-
   padding: 28px;
 
   border: 1px solid var(--border);
@@ -283,7 +271,6 @@ textarea {
 .card-header {
   display: flex;
   align-items: center;
-
   gap: 13px;
 }
 
@@ -331,7 +318,6 @@ textarea {
 
 .upload-box {
   margin-top: 24px;
-
   padding: 34px 25px;
 
   text-align: center;
@@ -370,7 +356,6 @@ textarea {
 
 .upload-box h3 {
   color: #1e3448;
-
   font-size: 16px;
 }
 
@@ -379,7 +364,6 @@ textarea {
   margin-bottom: 18px;
 
   color: #91a1ae;
-
   font-size: 12px;
 }
 
@@ -412,7 +396,6 @@ textarea {
   max-width: 480px;
 
   margin: 0 auto 18px;
-
   padding: 12px 14px;
 
   display: flex;
@@ -436,7 +419,6 @@ textarea {
   display: block;
 
   color: #30485b;
-
   font-size: 13px;
 
   word-break: break-word;
@@ -448,7 +430,6 @@ textarea {
   margin-top: 2px;
 
   color: #8ca0ae;
-
   font-size: 11px;
 }
 
@@ -459,10 +440,10 @@ textarea {
 .primary-button {
   padding: 11px 19px;
 
+  border: none;
   border-radius: 10px;
 
   background: var(--blue);
-
   color: white;
 
   font-size: 13px;
@@ -490,7 +471,6 @@ textarea {
 
 .primary-button:disabled {
   opacity: 0.55;
-
   cursor: not-allowed;
 
   box-shadow: none;
@@ -503,7 +483,6 @@ textarea {
   border-radius: 9px;
 
   background: white;
-
   color: #607383;
 
   font-size: 12px;
@@ -538,7 +517,6 @@ textarea {
 
 .success {
   color: #08745a;
-
   background: #ecfdf7;
 
   border: 1px solid #a7e8d3;
@@ -546,7 +524,6 @@ textarea {
 
 .error {
   color: #b42318;
-
   background: #fff5f4;
 
   border: 1px solid #fecaca;
@@ -582,7 +559,6 @@ textarea {
   display: block;
 
   width: 100%;
-
   min-height: 120px;
 
   resize: vertical;
@@ -593,11 +569,9 @@ textarea {
   outline: 0;
 
   background: transparent;
-
   color: #20384c;
 
   font-size: 14px;
-
   line-height: 1.6;
 }
 
@@ -621,7 +595,6 @@ textarea {
 
 .question-footer span {
   color: #9aaab5;
-
   font-size: 11px;
 }
 
@@ -660,7 +633,6 @@ textarea {
 
 .answer-title h3 {
   color: #075985;
-
   font-size: 16px;
 }
 
@@ -668,7 +640,6 @@ textarea {
   color: #385164;
 
   font-size: 14px;
-
   line-height: 1.75;
 
   white-space: pre-wrap;
@@ -696,7 +667,6 @@ textarea {
 .sources-title h3,
 .results-header h3 {
   color: #34495a;
-
   font-size: 15px;
 }
 
@@ -707,11 +677,9 @@ textarea {
   border-radius: 999px;
 
   background: #eef5f8;
-
   color: #6b8190;
 
   font-size: 10px;
-
   font-weight: 700;
 }
 
@@ -729,7 +697,6 @@ textarea {
 .source-file {
   display: flex;
   align-items: center;
-
   gap: 8px;
 }
 
@@ -743,7 +710,6 @@ textarea {
 
 .source-info {
   display: flex;
-
   gap: 15px;
 
   margin-top: 7px;
@@ -760,6 +726,7 @@ textarea {
 
 .history-header {
   display: flex;
+
   align-items: flex-start;
   justify-content: space-between;
 
@@ -779,11 +746,9 @@ textarea {
   border-radius: 999px;
 
   background: #eef5f8;
-
   color: #607383;
 
   font-size: 10px;
-
   font-weight: 700;
 }
 
@@ -822,7 +787,6 @@ textarea {
   border-radius: 9px;
 
   background: #e7f8fc;
-
   color: #087ea4;
 
   font-size: 11px;
@@ -831,13 +795,13 @@ textarea {
 
 .history-content {
   flex: 1;
-
   min-width: 0;
 }
 
 .question-row,
 .answer-row {
   display: flex;
+
   align-items: flex-start;
 
   gap: 10px;
@@ -879,7 +843,6 @@ textarea {
   font-weight: 750;
 
   text-transform: uppercase;
-
   letter-spacing: 0.7px;
 }
 
@@ -888,7 +851,6 @@ textarea {
   color: #3d5364;
 
   font-size: 13px;
-
   line-height: 1.6;
 
   white-space: pre-wrap;
@@ -905,7 +867,6 @@ textarea {
   border-radius: 7px;
 
   background: #f2f7f9;
-
   color: #8b9da9;
 
   font-size: 10px;
@@ -930,13 +891,11 @@ textarea {
 
 .empty-icon {
   margin-bottom: 10px;
-
   font-size: 30px;
 }
 
 .empty-state h3 {
   color: #526979;
-
   font-size: 14px;
 }
 
@@ -944,7 +903,6 @@ textarea {
   margin-top: 5px;
 
   color: #93a4af;
-
   font-size: 12px;
 }
 
@@ -993,7 +951,6 @@ textarea {
   outline: none;
 
   background: #fbfdfe;
-
   color: #20384c;
 
   font-size: 13px;
@@ -1031,6 +988,7 @@ textarea {
 
 .result-top {
   display: flex;
+
   align-items: flex-start;
   justify-content: space-between;
 
@@ -1063,11 +1021,9 @@ textarea {
   border-radius: 7px;
 
   background: #e7f8fc;
-
   color: #087ea4;
 
   font-size: 10px;
-
   font-weight: 750;
 }
 
@@ -1077,10 +1033,26 @@ textarea {
   color: #506575;
 
   font-size: 12px;
-
   line-height: 1.7;
 
   white-space: pre-wrap;
+}
+
+.search-empty {
+  margin-top: 18px;
+
+  padding: 18px;
+
+  text-align: center;
+
+  border: 1px dashed #d3e0e7;
+  border-radius: 12px;
+
+  background: #fbfdfe;
+
+  color: #91a2ae;
+
+  font-size: 12px;
 }
 
 /* ==================================================
@@ -1154,7 +1126,6 @@ footer strong {
 
   .status-pill {
     padding: 7px 9px;
-
     font-size: 10px;
   }
 
@@ -1175,7 +1146,6 @@ footer strong {
 
   .hero h2 {
     font-size: 31px;
-
     letter-spacing: -1px;
   }
 
@@ -1185,7 +1155,6 @@ footer strong {
 
   .card {
     padding: 20px 17px;
-
     border-radius: 16px;
   }
 
@@ -1199,7 +1168,6 @@ footer strong {
 
   .question-footer {
     align-items: flex-start;
-
     flex-direction: column;
   }
 

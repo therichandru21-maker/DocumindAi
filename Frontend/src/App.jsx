@@ -9,6 +9,9 @@ function App() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
 
+  const [documents, setDocuments] = useState([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -21,6 +24,34 @@ function App() {
 
   const [chatHistory, setChatHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+
+  // --------------------------------------------------
+  // Load Documents
+  // --------------------------------------------------
+
+  const loadDocuments = async () => {
+    setLoadingDocuments(true);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/documents/list`
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Failed to load documents."
+        );
+      }
+
+      setDocuments(data.documents || []);
+    } catch (error) {
+      console.error("Documents error:", error);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
 
   // --------------------------------------------------
   // Load Chat History
@@ -38,7 +69,8 @@ function App() {
 
       if (!response.ok) {
         throw new Error(
-          data.detail || "Failed to load chat history."
+          data.detail ||
+            "Failed to load chat history."
         );
       }
 
@@ -50,8 +82,13 @@ function App() {
     }
   };
 
+  // --------------------------------------------------
+  // Initial Load
+  // --------------------------------------------------
+
   useEffect(() => {
     loadChatHistory();
+    loadDocuments();
   }, []);
 
   // --------------------------------------------------
@@ -60,7 +97,9 @@ function App() {
 
   const handleUpload = async () => {
     if (!file) {
-      setUploadError("Please select a PDF document.");
+      setUploadError(
+        "Please select a PDF document."
+      );
       setUploadMessage("");
       return;
     }
@@ -105,6 +144,8 @@ function App() {
       if (fileInput) {
         fileInput.value = "";
       }
+
+      await loadDocuments();
     } catch (error) {
       setUploadError(
         error.message || "Upload failed."
@@ -366,7 +407,10 @@ function App() {
                 const selectedFile =
                   event.target.files?.[0];
 
-                setFile(selectedFile || null);
+                setFile(
+                  selectedFile || null
+                );
+
                 setUploadMessage("");
                 setUploadError("");
               }}
@@ -378,6 +422,7 @@ function App() {
                 <span>📎</span>
 
                 <div>
+
                   <strong>
                     {file.name}
                   </strong>
@@ -390,6 +435,7 @@ function App() {
                     ).toFixed(2)}{" "}
                     MB
                   </small>
+
                 </div>
 
               </div>
@@ -422,6 +468,116 @@ function App() {
         </section>
 
         {/* ==================================================
+            DOCUMENT LIBRARY
+        ================================================== */}
+
+        <section className="card">
+
+          <div className="card-header">
+
+            <div className="section-icon">
+              📚
+            </div>
+
+            <div>
+              <h2>
+                Document Library
+              </h2>
+
+              <p>
+                Documents currently available
+                in your knowledge base.
+              </p>
+            </div>
+
+          </div>
+
+          {loadingDocuments ? (
+
+            <div className="empty-state">
+              <div className="loading-spinner"></div>
+
+              <p>
+                Loading documents...
+              </p>
+            </div>
+
+          ) : documents.length === 0 ? (
+
+            <div className="empty-state">
+
+              <div className="empty-icon">
+                📄
+              </div>
+
+              <h3>
+                No documents uploaded
+              </h3>
+
+              <p>
+                Upload a PDF to build your
+                knowledge base.
+              </p>
+
+            </div>
+
+          ) : (
+
+            <div className="history-list">
+
+              {documents.map(
+                (document, index) => (
+                  <div
+                    className="history-item"
+                    key={
+                      document.filename ||
+                      index
+                    }
+                  >
+
+                    <div className="history-number">
+                      {index + 1}
+                    </div>
+
+                    <div className="history-content">
+
+                      <div className="source-file">
+
+                        <span>📑</span>
+
+                        <strong>
+                          {document.filename}
+                        </strong>
+
+                      </div>
+
+                      <div className="source-info">
+
+                        <span>
+                          {document.chunks}{" "}
+                          {document.chunks === 1
+                            ? "chunk"
+                            : "chunks"}
+                        </span>
+
+                        <span>
+                          Indexed
+                        </span>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+                )
+              )}
+
+            </div>
+          )}
+
+        </section>
+
+        {/* ==================================================
             ASK AI
         ================================================== */}
 
@@ -434,11 +590,13 @@ function App() {
             </div>
 
             <div>
-              <h2>Ask DocuMind AI</h2>
+              <h2>
+                Ask DocuMind AI
+              </h2>
 
               <p>
-                Ask questions about your uploaded
-                documents.
+                Ask questions about your
+                uploaded documents.
               </p>
             </div>
 
@@ -449,7 +607,9 @@ function App() {
             <textarea
               value={question}
               onChange={(event) =>
-                setQuestion(event.target.value)
+                setQuestion(
+                  event.target.value
+                )
               }
               onKeyDown={(event) => {
                 if (
@@ -468,8 +628,8 @@ function App() {
             <div className="question-footer">
 
               <span>
-                Press Enter to ask • Shift + Enter
-                for new line
+                Press Enter to ask • Shift +
+                Enter for new line
               </span>
 
               <button
@@ -495,27 +655,29 @@ function App() {
             </div>
           )}
 
-          {/* ==================================================
-              ANSWER
-          ================================================== */}
+          {/* Answer */}
 
           {answer && (
             <div className="answer-card">
 
               <div className="answer-title">
+
                 <span>💡</span>
 
-                <h3>Answer</h3>
+                <h3>
+                  Answer
+                </h3>
+
               </div>
 
-              <p>{answer}</p>
+              <p>
+                {answer}
+              </p>
 
             </div>
           )}
 
-          {/* ==================================================
-              SOURCES
-          ================================================== */}
+          {/* Sources */}
 
           {sources.length > 0 && (
             <div className="sources">
@@ -617,7 +779,9 @@ function App() {
               {chatHistory.length > 0 && (
                 <button
                   className="secondary-button"
-                  onClick={clearChatHistory}
+                  onClick={
+                    clearChatHistory
+                  }
                 >
                   🗑 Clear
                 </button>
@@ -627,9 +791,8 @@ function App() {
 
           </div>
 
-          {/* Loading */}
-
           {loadingHistory ? (
+
             <div className="empty-state">
 
               <div className="loading-spinner"></div>
@@ -642,8 +805,6 @@ function App() {
 
           ) : chatHistory.length === 0 ? (
 
-            /* Empty */
-
             <div className="empty-state">
 
               <div className="empty-icon">
@@ -655,15 +816,13 @@ function App() {
               </h3>
 
               <p>
-                Ask DocuMind AI a question to
-                start your conversation.
+                Ask DocuMind AI a question
+                to start your conversation.
               </p>
 
             </div>
 
           ) : (
-
-            /* History */
 
             <div className="history-list">
 
@@ -683,8 +842,6 @@ function App() {
                     </div>
 
                     <div className="history-content">
-
-                      {/* Question */}
 
                       <div className="question-row">
 
@@ -706,8 +863,6 @@ function App() {
 
                       </div>
 
-                      {/* Answer */}
-
                       <div className="answer-row">
 
                         <div className="avatar ai-avatar">
@@ -728,10 +883,9 @@ function App() {
 
                       </div>
 
-                      {/* Source */}
-
                       {chat.sources &&
-                        chat.sources.length > 0 && (
+                        chat.sources.length >
+                          0 && (
                           <div className="history-source">
                             📚{" "}
                             {
@@ -770,8 +924,8 @@ function App() {
               </h2>
 
               <p>
-                Search your knowledge base using
-                natural language.
+                Search your knowledge base
+                using natural language.
               </p>
             </div>
 
@@ -879,7 +1033,8 @@ function App() {
             searchQuery.trim() &&
             searchResults.length === 0 && (
               <div className="search-empty">
-                No matching document results found.
+                No matching document results
+                found.
               </div>
             )}
 
