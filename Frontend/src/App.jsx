@@ -7,6 +7,7 @@ function App() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadError, setUploadError] = useState("");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -22,7 +23,7 @@ function App() {
   const [loadingHistory, setLoadingHistory] = useState(true);
 
   // --------------------------------------------------
-  // Load Persistent Chat History
+  // Load Chat History
   // --------------------------------------------------
 
   const loadChatHistory = async () => {
@@ -43,16 +44,12 @@ function App() {
 
       setChatHistory(data.history || []);
     } catch (error) {
-      console.error(
-        "Chat history error:",
-        error
-      );
+      console.error("History error:", error);
     } finally {
       setLoadingHistory(false);
     }
   };
 
-  // Load history when page opens
   useEffect(() => {
     loadChatHistory();
   }, []);
@@ -63,18 +60,17 @@ function App() {
 
   const handleUpload = async () => {
     if (!file) {
-      setUploadMessage(
-        "Please select a PDF document."
-      );
+      setUploadError("Please select a PDF document.");
+      setUploadMessage("");
       return;
     }
 
-    const formData = new FormData();
-
-    formData.append("file", file);
-
     setUploading(true);
     setUploadMessage("");
+    setUploadError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
 
     try {
       const response = await fetch(
@@ -91,7 +87,7 @@ function App() {
         throw new Error(
           data.detail ||
             data.message ||
-            "Upload failed."
+            "Document upload failed."
         );
       }
 
@@ -101,10 +97,16 @@ function App() {
       );
 
       setFile(null);
+
+      const fileInput =
+        document.getElementById("document-upload");
+
+      if (fileInput) {
+        fileInput.value = "";
+      }
     } catch (error) {
-      setUploadMessage(
-        error.message ||
-          "Something went wrong while uploading."
+      setUploadError(
+        error.message || "Upload failed."
       );
     } finally {
       setUploading(false);
@@ -138,14 +140,9 @@ function App() {
         );
       }
 
-      setSearchResults(
-        data.results || []
-      );
+      setSearchResults(data.results || []);
     } catch (error) {
-      console.error(
-        "Search error:",
-        error
-      );
+      console.error("Search error:", error);
     } finally {
       setSearching(false);
     }
@@ -156,8 +153,7 @@ function App() {
   // --------------------------------------------------
 
   const handleAskAI = async () => {
-    const currentQuestion =
-      question.trim();
+    const currentQuestion = question.trim();
 
     if (!currentQuestion) {
       return;
@@ -174,8 +170,7 @@ function App() {
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             question: currentQuestion,
@@ -194,17 +189,12 @@ function App() {
         );
       }
 
-      const generatedAnswer =
-        data.answer ||
-        "No answer generated.";
+      setAnswer(
+        data.answer || "No answer generated."
+      );
 
-      const generatedSources =
-        data.sources || [];
+      setSources(data.sources || []);
 
-      setAnswer(generatedAnswer);
-      setSources(generatedSources);
-
-      // Refresh history from backend
       await loadChatHistory();
 
       setQuestion("");
@@ -219,7 +209,7 @@ function App() {
   };
 
   // --------------------------------------------------
-  // Clear Persistent Chat History
+  // Clear History
   // --------------------------------------------------
 
   const clearChatHistory = async () => {
@@ -253,125 +243,202 @@ function App() {
   };
 
   // --------------------------------------------------
-  // UI
+  // Render
   // --------------------------------------------------
 
   return (
     <div className="app">
 
-      {/* ------------------------------------------------ */}
-      {/* Header */}
-      {/* ------------------------------------------------ */}
+      {/* ================================================
+          HEADER
+      ================================================= */}
 
       <header className="header">
-        <div>
-          <h1>📄 DocuMind AI</h1>
+        <div className="header-content">
 
-          <p>
-            Your AI-powered document and
-            knowledge assistant
-          </p>
+          <div className="brand">
+            <div className="brand-icon">
+              📄
+            </div>
+
+            <div>
+              <h1>DocuMind AI</h1>
+
+              <p>
+                Your intelligent document knowledge
+                assistant
+              </p>
+            </div>
+          </div>
+
+          <div className="status-pill">
+            <span className="status-dot"></span>
+            AI Online
+          </div>
+
         </div>
       </header>
 
+      {/* ================================================
+          MAIN
+      ================================================= */}
+
       <main className="container">
 
-        {/* ------------------------------------------------ */}
-        {/* Upload Document */}
-        {/* ------------------------------------------------ */}
+        {/* ------------------------------------------------
+            HERO
+        ------------------------------------------------ */}
+
+        <section className="hero">
+
+          <div>
+            <span className="hero-label">
+              RAG-POWERED DOCUMENT ASSISTANT
+            </span>
+
+            <h2>
+              Ask your documents.
+              <br />
+              <span>Get intelligent answers.</span>
+            </h2>
+
+            <p>
+              Upload your documents, search their
+              contents and ask DocuMind AI questions
+              using natural language.
+            </p>
+          </div>
+
+          <div className="hero-icon">
+            🧠
+          </div>
+
+        </section>
+
+        {/* ------------------------------------------------
+            UPLOAD
+        ------------------------------------------------ */}
 
         <section className="card">
 
-          <h2>
-            📄 Upload Document
-          </h2>
+          <div className="card-header">
 
-          <p className="description">
-            Add a PDF document to your
-            knowledge base.
-          </p>
+            <div className="section-icon">
+              📤
+            </div>
+
+            <div>
+              <h2>Upload Document</h2>
+
+              <p>
+                Add a PDF to your knowledge base.
+              </p>
+            </div>
+
+          </div>
 
           <div className="upload-box">
 
+            <div className="upload-icon">
+              ☁️
+            </div>
+
+            <h3>
+              Upload your document
+            </h3>
+
+            <p>
+              PDF files up to 20 MB
+            </p>
+
             <input
+              id="document-upload"
               type="file"
               accept=".pdf"
               onChange={(event) => {
-                setFile(
-                  event.target.files[0]
-                );
+                const selectedFile =
+                  event.target.files?.[0];
 
+                setFile(selectedFile || null);
                 setUploadMessage("");
+                setUploadError("");
               }}
             />
 
             {file && (
-              <p className="file-name">
-                📎 {file.name}
-              </p>
+              <div className="selected-file">
+                <span>📎</span>
+
+                <div>
+                  <strong>
+                    {file.name}
+                  </strong>
+
+                  <small>
+                    {(file.size / 1024 / 1024).toFixed(
+                      2
+                    )}{" "}
+                    MB
+                  </small>
+                </div>
+              </div>
             )}
 
             <button
+              className="primary-button"
               onClick={handleUpload}
               disabled={uploading}
             >
               {uploading
-                ? "Uploading..."
+                ? "Processing..."
                 : "⬆ Upload & Index"}
             </button>
 
           </div>
 
           {uploadMessage && (
-            <div className="message">
+            <div className="message success">
               ✓ {uploadMessage}
+            </div>
+          )}
+
+          {uploadError && (
+            <div className="message error">
+              ⚠ {uploadError}
             </div>
           )}
 
         </section>
 
-        {/* ------------------------------------------------ */}
-        {/* Ask AI */}
-        {/* ------------------------------------------------ */}
+        {/* ------------------------------------------------
+            ASK AI
+        ------------------------------------------------ */}
 
-        <section className="card ai-card">
+        <section className="card ai-section">
 
-          <div className="section-header">
+          <div className="card-header">
+
+            <div className="section-icon ai-icon">
+              🤖
+            </div>
 
             <div>
-              <h2>
-                🤖 Ask DocuMind AI
-              </h2>
+              <h2>Ask DocuMind AI</h2>
 
-              <p className="description">
-                Ask questions about your
-                uploaded documents.
+              <p>
+                Ask questions about your uploaded
+                documents.
               </p>
             </div>
 
-            {chatHistory.length > 0 && (
-              <button
-                className="clear-button"
-                onClick={
-                  clearChatHistory
-                }
-              >
-                Clear Chat
-              </button>
-            )}
-
           </div>
 
-          {/* Question */}
-
-          <div className="question-box">
+          <div className="question-area">
 
             <textarea
               value={question}
               onChange={(event) =>
-                setQuestion(
-                  event.target.value
-                )
+                setQuestion(event.target.value)
               }
               onKeyDown={(event) => {
                 if (
@@ -382,80 +449,97 @@ function App() {
                   handleAskAI();
                 }
               }}
-              placeholder="Ask something about your documents..."
-              rows="4"
+              placeholder="e.g. What is my seminar fee?"
+              rows={4}
             />
 
-            <button
-              onClick={handleAskAI}
-              disabled={
-                asking ||
-                !question.trim()
-              }
-            >
-              {asking
-                ? "Thinking..."
-                : "🔍 Ask AI"}
-            </button>
+            <div className="question-footer">
+
+              <span>
+                Press Enter to ask
+              </span>
+
+              <button
+                className="primary-button"
+                onClick={handleAskAI}
+                disabled={
+                  asking ||
+                  !question.trim()
+                }
+              >
+                {asking
+                  ? "Thinking..."
+                  : "✨ Ask AI"}
+              </button>
+
+            </div>
 
           </div>
 
-          {/* Error */}
-
           {chatError && (
-            <div className="error">
+            <div className="message error">
               ⚠ {chatError}
             </div>
           )}
 
-          {/* Current Answer */}
+          {/* Answer */}
 
           {answer && (
-            <div className="answer">
+            <div className="answer-card">
 
-              <h3>
-                💡 Answer
-              </h3>
+              <div className="answer-title">
+                <span>💡</span>
+                <h3>Answer</h3>
+              </div>
 
-              <p>
-                {answer}
-              </p>
+              <p>{answer}</p>
 
             </div>
           )}
 
-          {/* Current Sources */}
+          {/* Sources */}
 
           {sources.length > 0 && (
             <div className="sources">
 
-              <h3>
-                📚 Sources
-              </h3>
+              <div className="sources-title">
+                <h3>📚 Sources</h3>
+
+                <span>
+                  {sources.length}{" "}
+                  {sources.length === 1
+                    ? "source"
+                    : "sources"}
+                </span>
+              </div>
 
               {sources.map(
                 (source, index) => (
                   <div
-                    className="source"
+                    className="source-card"
                     key={index}
                   >
 
-                    <strong>
-                      📑{" "}
-                      {source.filename}
-                    </strong>
+                    <div className="source-file">
+                      📑
+                      <strong>
+                        {source.filename}
+                      </strong>
+                    </div>
 
-                    <span>
-                      Chunk:{" "}
-                      {source.chunk_index}
-                    </span>
+                    <div className="source-info">
+                      <span>
+                        Chunk{" "}
+                        {source.chunk_index}
+                      </span>
 
-                    <small>
-                      Relevance:{" "}
-                      {source.score?.toFixed(
-                        4
-                      )}
-                    </small>
+                      <span>
+                        Relevance{" "}
+                        {source.score?.toFixed(
+                          4
+                        )}
+                      </span>
+                    </div>
 
                   </div>
                 )
@@ -466,45 +550,79 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------ */}
-        {/* Conversation History */}
-        {/* ------------------------------------------------ */}
+        {/* ------------------------------------------------
+            HISTORY
+        ------------------------------------------------ */}
 
         <section className="card">
 
-          <div className="section-header">
+          <div className="history-header">
 
-            <div>
-              <h2>
-                💬 Conversation History
-              </h2>
+            <div className="card-header">
 
-              <p className="description">
-                Previous questions and
-                AI answers.
-              </p>
+              <div className="section-icon">
+                💬
+              </div>
+
+              <div>
+                <h2>
+                  Conversation History
+                </h2>
+
+                <p>
+                  Previous questions and AI
+                  answers.
+                </p>
+              </div>
+
             </div>
 
-            {!loadingHistory &&
-              chatHistory.length > 0 && (
-                <span className="history-count">
-                  {chatHistory.length}{" "}
-                  {chatHistory.length === 1
-                    ? "conversation"
-                    : "conversations"}
-                </span>
+            <div className="history-actions">
+
+              <span className="count-badge">
+                {chatHistory.length}{" "}
+                {chatHistory.length === 1
+                  ? "conversation"
+                  : "conversations"}
+              </span>
+
+              {chatHistory.length > 0 && (
+                <button
+                  className="secondary-button"
+                  onClick={clearChatHistory}
+                >
+                  🗑 Clear
+                </button>
               )}
+
+            </div>
 
           </div>
 
           {loadingHistory ? (
-            <p className="history-loading">
-              Loading conversation history...
-            </p>
+            <div className="empty-state">
+              <div className="loading-spinner"></div>
+              <p>
+                Loading conversation history...
+              </p>
+            </div>
           ) : chatHistory.length === 0 ? (
-            <p className="history-empty">
-              No conversations yet.
-            </p>
+            <div className="empty-state">
+
+              <div className="empty-icon">
+                💬
+              </div>
+
+              <h3>
+                No conversations yet
+              </h3>
+
+              <p>
+                Ask DocuMind AI a question to
+                start your conversation.
+              </p>
+
+            </div>
           ) : (
             <div className="history-list">
 
@@ -515,59 +633,61 @@ function App() {
                     key={index}
                   >
 
-                    {/* Question */}
-
-                    <div className="history-question">
-
-                      <span>
-                        🧑
-                      </span>
-
-                      <div>
-                        <small>
-                          Question
-                        </small>
-
-                        <p>
-                          {chat.question}
-                        </p>
-                      </div>
-
+                    <div className="history-number">
+                      {index + 1}
                     </div>
 
-                    {/* Answer */}
+                    <div className="history-content">
 
-                    <div className="history-answer">
+                      <div className="question-row">
 
-                      <span>
-                        🤖
-                      </span>
-
-                      <div>
-                        <small>
-                          DocuMind AI
-                        </small>
-
-                        <p>
-                          {chat.answer}
-                        </p>
-                      </div>
-
-                    </div>
-
-                    {/* Source */}
-
-                    {chat.sources &&
-                      chat.sources.length >
-                        0 && (
-                        <div className="history-source">
-                          📚 Source:{" "}
-                          {
-                            chat.sources[0]
-                              .filename
-                          }
+                        <div className="avatar user-avatar">
+                          🧑
                         </div>
-                      )}
+
+                        <div>
+                          <span className="message-label">
+                            Question
+                          </span>
+
+                          <p>
+                            {chat.question}
+                          </p>
+                        </div>
+
+                      </div>
+
+                      <div className="answer-row">
+
+                        <div className="avatar ai-avatar">
+                          🤖
+                        </div>
+
+                        <div>
+                          <span className="message-label">
+                            DocuMind AI
+                          </span>
+
+                          <p>
+                            {chat.answer}
+                          </p>
+                        </div>
+
+                      </div>
+
+                      {chat.sources &&
+                        chat.sources.length >
+                          0 && (
+                          <div className="history-source">
+                            📚{" "}
+                            {
+                              chat.sources[0]
+                                .filename
+                            }
+                          </div>
+                        )}
+
+                    </div>
 
                   </div>
                 )
@@ -578,19 +698,30 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------ */}
-        {/* Search Documents */}
-        {/* ------------------------------------------------ */}
+        {/* ------------------------------------------------
+            SEARCH
+        ------------------------------------------------ */}
 
         <section className="card">
 
-          <h2>
-            🔍 Search Documents
-          </h2>
+          <div className="card-header">
 
-          <p className="description">
-            Search using natural language.
-          </p>
+            <div className="section-icon">
+              🔍
+            </div>
+
+            <div>
+              <h2>
+                Search Documents
+              </h2>
+
+              <p>
+                Search your knowledge base using
+                natural language.
+              </p>
+            </div>
+
+          </div>
 
           <div className="search-box">
 
@@ -609,10 +740,11 @@ function App() {
                   handleSearch();
                 }
               }}
-              placeholder="Search your documents..."
+              placeholder="Search documents..."
             />
 
             <button
+              className="primary-button"
               onClick={handleSearch}
               disabled={
                 searching ||
@@ -621,42 +753,52 @@ function App() {
             >
               {searching
                 ? "Searching..."
-                : "Search"}
+                : "🔍 Search"}
             </button>
 
           </div>
 
-          {searchResults.length >
-            0 && (
+          {searchResults.length > 0 && (
             <div className="results">
 
-              <h3>
-                Search Results (
-                {searchResults.length})
-              </h3>
+              <div className="results-header">
+                <h3>
+                  Search Results
+                </h3>
+
+                <span>
+                  {searchResults.length} results
+                </span>
+              </div>
 
               {searchResults.map(
                 (result, index) => (
                   <div
-                    className="result"
+                    className="result-card"
                     key={index}
                   >
 
-                    <h4>
-                      📑{" "}
-                      {result.filename}
-                    </h4>
+                    <div className="result-top">
 
-                    <p className="result-meta">
-                      Chunk:{" "}
-                      {
-                        result.chunk_index
-                      }{" "}
-                      | Score:{" "}
-                      {result.score?.toFixed(
-                        4
-                      )}
-                    </p>
+                      <div>
+                        <h4>
+                          📑{" "}
+                          {result.filename}
+                        </h4>
+
+                        <span>
+                          Chunk{" "}
+                          {result.chunk_index}
+                        </span>
+                      </div>
+
+                      <div className="score">
+                        {result.score?.toFixed(
+                          4
+                        )}
+                      </div>
+
+                    </div>
 
                     <p>
                       {result.text}
@@ -673,15 +815,16 @@ function App() {
 
       </main>
 
-      {/* ------------------------------------------------ */}
-      {/* Footer */}
-      {/* ------------------------------------------------ */}
+      {/* ================================================
+          FOOTER
+      ================================================= */}
 
       <footer>
-        <p>
-          DocuMind AI • RAG-based
-          Knowledge Assistant
-        </p>
+        <strong>DocuMind AI</strong>
+        <span>
+          RAG-based Document & Knowledge
+          Assistant
+        </span>
       </footer>
 
     </div>
