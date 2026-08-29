@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -6,11 +6,13 @@ const API_URL = "http://127.0.0.1:8000";
 function App() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [deletingDocument, setDeletingDocument] = useState("");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -25,86 +27,133 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // --------------------------------------------------
-  // Load Documents
-  // --------------------------------------------------
+  const fileInputRef = useRef(null);
+
+  const formatFileSize = (bytes) => {
+    if (!bytes || bytes <= 0) return "Unknown size";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024)
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const formatUploadDate = (date) => {
+    if (!date) return "Date unavailable";
+
+    try {
+      return new Date(date).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return "Date unavailable";
+    }
+  };
 
   const loadDocuments = async () => {
     setLoadingDocuments(true);
 
     try {
-      const response = await fetch(
-        `${API_URL}/documents/list`
-      );
-
+      const response = await fetch(`${API_URL}/documents/list`);
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.detail || "Failed to load documents."
-        );
+        throw new Error(data.detail || "Failed to load documents.");
       }
 
       setDocuments(data.documents || []);
     } catch (error) {
-      console.error("Documents error:", error);
+      console.error(error);
+      setUploadError(error.message || "Unable to load documents.");
     } finally {
       setLoadingDocuments(false);
     }
   };
 
-  // --------------------------------------------------
-  // Load Chat History
-  // --------------------------------------------------
-
   const loadChatHistory = async () => {
     setLoadingHistory(true);
 
     try {
-      const response = await fetch(
-        `${API_URL}/chat/history`
-      );
-
+      const response = await fetch(`${API_URL}/chat/history`);
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            "Failed to load chat history."
-        );
+        throw new Error(data.detail || "Failed to load chat history.");
       }
 
       setChatHistory(data.history || []);
     } catch (error) {
-      console.error("History error:", error);
+      console.error(error);
     } finally {
       setLoadingHistory(false);
     }
   };
 
-  // --------------------------------------------------
-  // Initial Load
-  // --------------------------------------------------
-
   useEffect(() => {
-    loadChatHistory();
     loadDocuments();
+    loadChatHistory();
   }, []);
 
-  // --------------------------------------------------
-  // Upload Document
-  // --------------------------------------------------
+  const validateFile = (selectedFile) => {
+    if (!selectedFile) return false;
+
+    if (
+      selectedFile.type !== "application/pdf" &&
+      !selectedFile.name.toLowerCase().endsWith(".pdf")
+    ) {
+      setUploadError("Only PDF files are supported.");
+      setUploadMessage("");
+      return false;
+    }
+
+    if (selectedFile.size > 20 * 1024 * 1024) {
+      setUploadError("File size must be 20 MB or less.");
+      setUploadMessage("");
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleFileSelect = (selectedFile) => {
+    if (!selectedFile) return;
+
+    if (!validateFile(selectedFile)) return;
+
+    setFile(selectedFile);
+    setUploadMessage("");
+    setUploadError("");
+  };
+
+  const removeSelectedFile = () => {
+    setFile(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    setUploadMessage("");
+    setUploadError("");
+  };
+
+  const openFilePicker = () => {
+    if (!uploading) {
+      fileInputRef.current?.click();
+    }
+  };
 
   const handleUpload = async () => {
     if (!file) {
-      setUploadError(
-        "Please select a PDF document."
-      );
-      setUploadMessage("");
+      setUploadError("Please select a PDF document.");
       return;
     }
 
+    if (!validateFile(file)) return;
+
     setUploading(true);
+    setUploadProgress(10);
     setUploadMessage("");
     setUploadError("");
 
@@ -112,13 +161,14 @@ function App() {
     formData.append("file", file);
 
     try {
-      const response = await fetch(
-        `${API_URL}/documents/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      setUploadProgress(25);
+
+      const response = await fetch(`${API_URL}/documents/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      setUploadProgress(70);
 
       const data = await response.json();
 
@@ -130,41 +180,93 @@ function App() {
         );
       }
 
+      setUploadProgress(100);
+
       setUploadMessage(
-        data.message ||
-          "Document uploaded, processed and indexed successfully."
+        data.already_indexed
+          ? "This document is already indexed. No duplicate was created."
+          : data.message ||
+              "Document uploaded, processed and indexed successfully."
       );
 
       setFile(null);
 
-      const fileInput = document.getElementById(
-        "document-upload"
-      );
-
-      if (fileInput) {
-        fileInput.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
 
       await loadDocuments();
     } catch (error) {
-      setUploadError(
-        error.message || "Upload failed."
-      );
+      console.error(error);
+      setUploadError(error.message || "Upload failed.");
     } finally {
       setUploading(false);
+
+      setTimeout(() => {
+        setUploadProgress(0);
+      }, 700);
     }
   };
 
-  // --------------------------------------------------
-  // Search Documents
-  // --------------------------------------------------
+  const handleDeleteDocument = async (filename) => {
+    if (!filename) return;
+
+    const confirmed = window.confirm(
+      `Delete "${filename}" from your knowledge base?\n\nThis will remove its indexed chunks too.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingDocument(filename);
+    setUploadError("");
+    setUploadMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/documents/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Failed to delete document."
+        );
+      }
+
+      setDocuments((current) =>
+        current.filter(
+          (document) => document.filename !== filename
+        )
+      );
+
+      setSearchResults((current) =>
+        current.filter(
+          (result) => result.filename !== filename
+        )
+      );
+
+      setUploadMessage(
+        data.message ||
+          `Document "${filename}" deleted successfully.`
+      );
+    } catch (error) {
+      console.error(error);
+      setUploadError(
+        error.message || "Unable to delete document."
+      );
+    } finally {
+      setDeletingDocument("");
+    }
+  };
 
   const handleSearch = async () => {
     const query = searchQuery.trim();
 
-    if (!query) {
-      return;
-    }
+    if (!query) return;
 
     setSearching(true);
     setSearchResults([]);
@@ -179,29 +281,22 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.detail || "Search failed."
-        );
+        throw new Error(data.detail || "Search failed.");
       }
 
       setSearchResults(data.results || []);
     } catch (error) {
-      console.error("Search error:", error);
+      console.error(error);
+      setUploadError(error.message || "Search failed.");
     } finally {
       setSearching(false);
     }
   };
 
-  // --------------------------------------------------
-  // Ask AI
-  // --------------------------------------------------
-
   const handleAskAI = async () => {
     const currentQuestion = question.trim();
 
-    if (!currentQuestion) {
-      return;
-    }
+    if (!currentQuestion) return;
 
     setAsking(true);
     setAnswer("");
@@ -209,19 +304,16 @@ function App() {
     setChatError("");
 
     try {
-      const response = await fetch(
-        `${API_URL}/chat/ask`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            question: currentQuestion,
-            top_k: 1,
-          }),
-        }
-      );
+      const response = await fetch(`${API_URL}/chat/ask`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: currentQuestion,
+          top_k: 1,
+        }),
+      });
 
       const data = await response.json();
 
@@ -233,16 +325,15 @@ function App() {
         );
       }
 
-      setAnswer(
-        data.answer || "No answer generated."
-      );
-
+      setAnswer(data.answer || "No answer generated.");
       setSources(data.sources || []);
 
       await loadChatHistory();
 
       setQuestion("");
     } catch (error) {
+      console.error(error);
+
       setChatError(
         error.message ||
           "Something went wrong while asking AI."
@@ -252,11 +343,13 @@ function App() {
     }
   };
 
-  // --------------------------------------------------
-  // Clear Chat History
-  // --------------------------------------------------
-
   const clearChatHistory = async () => {
+    const confirmed = window.confirm(
+      "Clear all conversation history?"
+    );
+
+    if (!confirmed) return;
+
     try {
       const response = await fetch(
         `${API_URL}/chat/history`,
@@ -269,8 +362,7 @@ function App() {
 
       if (!response.ok) {
         throw new Error(
-          data.detail ||
-            "Failed to clear chat history."
+          data.detail || "Failed to clear chat history."
         );
       }
 
@@ -286,35 +378,22 @@ function App() {
     }
   };
 
-  // --------------------------------------------------
-  // Render
-  // --------------------------------------------------
-
   return (
     <div className="app">
 
-      {/* ==================================================
-          HEADER
-      ================================================== */}
-
+      {/* HEADER */}
       <header className="header">
         <div className="header-content">
 
           <div className="brand">
-
-            <div className="brand-icon">
-              📄
-            </div>
+            <div className="brand-icon">📄</div>
 
             <div>
               <h1>DocuMind AI</h1>
-
               <p>
-                Your intelligent document knowledge
-                assistant
+                Your intelligent document knowledge assistant
               </p>
             </div>
-
           </div>
 
           <div className="status-pill">
@@ -325,18 +404,10 @@ function App() {
         </div>
       </header>
 
-      {/* ==================================================
-          MAIN
-      ================================================== */}
-
       <main className="container">
 
-        {/* ==================================================
-            HERO
-        ================================================== */}
-
+        {/* HERO */}
         <section className="hero">
-
           <div className="hero-content">
 
             <span className="hero-label">
@@ -350,108 +421,171 @@ function App() {
             </h2>
 
             <p>
-              Upload your documents, search their
-              contents and ask DocuMind AI questions
-              using natural language.
+              Upload your documents, search their contents
+              and ask DocuMind AI questions using natural language.
             </p>
 
           </div>
 
-          <div className="hero-icon">
-            🧠
-          </div>
-
+          <div className="hero-icon">🧠</div>
         </section>
 
-        {/* ==================================================
-            UPLOAD DOCUMENT
-        ================================================== */}
-
+        {/* UPLOAD */}
         <section className="card">
 
           <div className="card-header">
-
-            <div className="section-icon">
-              📤
-            </div>
+            <div className="section-icon">📤</div>
 
             <div>
               <h2>Upload Document</h2>
-
-              <p>
-                Add a PDF to your knowledge base.
-              </p>
+              <p>Add a PDF to your knowledge base.</p>
             </div>
-
           </div>
 
-          <div className="upload-box">
+          <div
+            className={`upload-dropzone ${
+              file ? "has-file" : ""
+            }`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.currentTarget.classList.add(
+                "drag-active"
+              );
+            }}
+            onDragLeave={(event) => {
+              event.currentTarget.classList.remove(
+                "drag-active"
+              );
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
 
-            <div className="upload-icon">
-              ☁️
-            </div>
+              event.currentTarget.classList.remove(
+                "drag-active"
+              );
 
-            <h3>
-              Upload your document
-            </h3>
+              const droppedFile =
+                event.dataTransfer.files?.[0];
 
-            <p>
-              PDF files up to 20 MB
-            </p>
+              handleFileSelect(droppedFile);
+            }}
+            onClick={(event) => {
+              if (
+                !file &&
+                event.target.closest(
+                  ".remove-file-button"
+                ) === null
+              ) {
+                openFilePicker();
+              }
+            }}
+          >
 
-            <input
-              id="document-upload"
-              type="file"
-              accept=".pdf,application/pdf"
-              onChange={(event) => {
-                const selectedFile =
-                  event.target.files?.[0];
+            {!file ? (
+              <>
+                <div className="dropzone-icon">
+                  <span>↑</span>
+                </div>
 
-                setFile(
-                  selectedFile || null
-                );
+                <h3>Drop your PDF here</h3>
 
-                setUploadMessage("");
-                setUploadError("");
-              }}
-            />
+                <p>
+                  Click anywhere here or drag & drop your document
+                </p>
 
-            {file && (
-              <div className="selected-file">
+                <input
+                  ref={fileInputRef}
+                  id="document-upload"
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  disabled={uploading}
+                  onChange={(event) => {
+                    handleFileSelect(
+                      event.target.files?.[0]
+                    );
+                  }}
+                />
 
-                <span>📎</span>
+                <div className="dropzone-action">
+                  <span className="upload-cloud">☁</span>
+                  <span>Choose PDF Document</span>
+                </div>
 
-                <div>
+                <div className="upload-hint">
+                  <span>PDF ONLY</span>
+                  <span>•</span>
+                  <span>MAX 20 MB</span>
+                </div>
+              </>
+            ) : (
+              <div className="selected-file-modern">
 
-                  <strong>
+                <div className="selected-file-icon">
+                  📄
+                </div>
+
+                <div className="selected-file-info">
+                  <strong title={file.name}>
                     {file.name}
                   </strong>
 
-                  <small>
-                    {(
-                      file.size /
-                      1024 /
-                      1024
-                    ).toFixed(2)}{" "}
-                    MB
-                  </small>
-
+                  <span>
+                    {formatFileSize(file.size)}
+                    {" • "}
+                    PDF Document
+                  </span>
                 </div>
+
+                <button
+                  type="button"
+                  className="remove-file-button"
+                  title="Remove file"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeSelectedFile();
+                  }}
+                  disabled={uploading}
+                >
+                  ✕
+                </button>
 
               </div>
             )}
 
-            <button
-              className="primary-button"
-              onClick={handleUpload}
-              disabled={uploading}
-            >
-              {uploading
-                ? "Processing..."
-                : "⬆ Upload & Index"}
-            </button>
-
           </div>
+
+          <button
+            className="primary-button upload-main-button"
+            onClick={handleUpload}
+            disabled={uploading || !file}
+          >
+            {uploading
+              ? "⏳ Processing..."
+              : "⬆ Upload & Index"}
+          </button>
+
+          {uploading && (
+            <div className="upload-progress">
+
+              <div className="upload-progress-bar">
+                <div
+                  className="upload-progress-fill"
+                  style={{
+                    width: `${uploadProgress}%`,
+                  }}
+                />
+              </div>
+
+              <span>
+                {uploadProgress < 50
+                  ? "Uploading document..."
+                  : uploadProgress < 100
+                  ? "Extracting, embedding and indexing..."
+                  : "Document ready!"}
+              </span>
+
+            </div>
+          )}
 
           {uploadMessage && (
             <div className="message success">
@@ -467,120 +601,167 @@ function App() {
 
         </section>
 
-        {/* ==================================================
-            DOCUMENT LIBRARY
-        ================================================== */}
-
+        {/* DOCUMENT LIBRARY */}
         <section className="card">
 
           <div className="card-header">
 
-            <div className="section-icon">
-              📚
-            </div>
+            <div className="section-icon">📚</div>
 
             <div>
-              <h2>
-                Document Library
-              </h2>
-
+              <h2>Document Library</h2>
               <p>
-                Documents currently available
-                in your knowledge base.
+                Manage documents in your knowledge base.
               </p>
             </div>
 
           </div>
 
-          {loadingDocuments ? (
+          {!loadingDocuments &&
+            documents.length > 0 && (
+              <div className="library-summary">
 
+                <div className="library-stat">
+                  <strong>{documents.length}</strong>
+                  <span>Documents</span>
+                </div>
+
+                <div className="library-stat">
+                  <strong>
+                    {documents.reduce(
+                      (total, document) =>
+                        total + (document.chunks || 0),
+                      0
+                    )}
+                  </strong>
+                  <span>Indexed Chunks</span>
+                </div>
+
+                <div className="library-stat">
+                  <strong>✓</strong>
+                  <span>Knowledge Ready</span>
+                </div>
+
+              </div>
+            )}
+
+          {loadingDocuments ? (
             <div className="empty-state">
               <div className="loading-spinner"></div>
-
-              <p>
-                Loading documents...
-              </p>
+              <p>Loading documents...</p>
             </div>
-
           ) : documents.length === 0 ? (
-
             <div className="empty-state">
-
-              <div className="empty-icon">
-                📄
-              </div>
-
-              <h3>
-                No documents uploaded
-              </h3>
-
+              <div className="empty-icon">📄</div>
+              <h3>No documents uploaded</h3>
               <p>
-                Upload a PDF to build your
-                knowledge base.
+                Upload a PDF to build your knowledge base.
               </p>
-
             </div>
-
           ) : (
+            <div className="document-grid">
 
-            <div className="history-list">
+              {documents.map((document, index) => (
+                <div
+                  className="document-card"
+                  key={document.filename || index}
+                >
 
-              {documents.map(
-                (document, index) => (
-                  <div
-                    className="history-item"
-                    key={
-                      document.filename ||
-                      index
-                    }
-                  >
+                  <div className="document-card-top">
 
-                    <div className="history-number">
-                      {index + 1}
+                    <div className="document-file-icon">
+                      📄
                     </div>
 
-                    <div className="history-content">
+                    <div className="document-main">
+                      <h3 title={document.filename}>
+                        {document.filename}
+                      </h3>
 
-                      <div className="source-file">
+                      <span className="document-type">
+                        PDF Document
+                      </span>
+                    </div>
 
-                        <span>📑</span>
+                    <button
+                      className="document-delete"
+                      title="Delete document"
+                      disabled={
+                        deletingDocument ===
+                        document.filename
+                      }
+                      onClick={() =>
+                        handleDeleteDocument(
+                          document.filename
+                        )
+                      }
+                    >
+                      {deletingDocument ===
+                      document.filename
+                        ? "⏳"
+                        : "🗑"}
+                    </button>
 
+                  </div>
+
+                  <div className="document-meta">
+
+                    <div className="document-meta-item">
+                      <span className="meta-icon">📦</span>
+
+                      <div>
+                        <small>Size</small>
                         <strong>
-                          {document.filename}
+                          {document.file_size_mb
+                            ? `${document.file_size_mb} MB`
+                            : formatFileSize(
+                                document.file_size
+                              )}
                         </strong>
-
                       </div>
+                    </div>
 
-                      <div className="source-info">
+                    <div className="document-meta-item">
+                      <span className="meta-icon">🧩</span>
 
-                        <span>
-                          {document.chunks}{" "}
-                          {document.chunks === 1
-                            ? "chunk"
-                            : "chunks"}
-                        </span>
-
-                        <span>
-                          Indexed
-                        </span>
-
+                      <div>
+                        <small>Chunks</small>
+                        <strong>
+                          {document.chunks ?? 0}
+                        </strong>
                       </div>
+                    </div>
 
+                    <div className="document-meta-item">
+                      <span className="meta-icon">🕒</span>
+
+                      <div>
+                        <small>Uploaded</small>
+                        <strong>
+                          {formatUploadDate(
+                            document.upload_date ||
+                              document.created_at
+                          )}
+                        </strong>
+                      </div>
                     </div>
 
                   </div>
-                )
-              )}
+
+                  <div className="document-status">
+                    <span className="document-status-dot"></span>
+                    Indexed & Ready
+                  </div>
+
+                </div>
+              ))}
 
             </div>
           )}
 
         </section>
 
-        {/* ==================================================
-            ASK AI
-        ================================================== */}
-
+        {/* ASK AI */}
         <section className="card ai-section">
 
           <div className="card-header">
@@ -590,13 +771,9 @@ function App() {
             </div>
 
             <div>
-              <h2>
-                Ask DocuMind AI
-              </h2>
-
+              <h2>Ask DocuMind AI</h2>
               <p>
-                Ask questions about your
-                uploaded documents.
+                Ask questions about your uploaded documents.
               </p>
             </div>
 
@@ -607,9 +784,7 @@ function App() {
             <textarea
               value={question}
               onChange={(event) =>
-                setQuestion(
-                  event.target.value
-                )
+                setQuestion(event.target.value)
               }
               onKeyDown={(event) => {
                 if (
@@ -617,7 +792,13 @@ function App() {
                   !event.shiftKey
                 ) {
                   event.preventDefault();
-                  handleAskAI();
+
+                  if (
+                    !asking &&
+                    question.trim()
+                  ) {
+                    handleAskAI();
+                  }
                 }
               }}
               placeholder="e.g. What is my seminar fee?"
@@ -626,10 +807,8 @@ function App() {
             />
 
             <div className="question-footer">
-
               <span>
-                Press Enter to ask • Shift +
-                Enter for new line
+                Press Enter to ask • Shift + Enter for new line
               </span>
 
               <button
@@ -644,7 +823,6 @@ function App() {
                   ? "Thinking..."
                   : "✨ Ask AI"}
               </button>
-
             </div>
 
           </div>
@@ -655,38 +833,24 @@ function App() {
             </div>
           )}
 
-          {/* Answer */}
-
           {answer && (
             <div className="answer-card">
 
               <div className="answer-title">
-
                 <span>💡</span>
-
-                <h3>
-                  Answer
-                </h3>
-
+                <h3>Answer</h3>
               </div>
 
-              <p>
-                {answer}
-              </p>
+              <p>{answer}</p>
 
             </div>
           )}
-
-          {/* Sources */}
 
           {sources.length > 0 && (
             <div className="sources">
 
               <div className="sources-title">
-
-                <h3>
-                  📚 Sources
-                </h3>
+                <h3>📚 Sources</h3>
 
                 <span>
                   {sources.length}{" "}
@@ -694,74 +858,53 @@ function App() {
                     ? "source"
                     : "sources"}
                 </span>
-
               </div>
 
-              {sources.map(
-                (source, index) => (
-                  <div
-                    className="source-card"
-                    key={`${source.filename}-${source.chunk_index}-${index}`}
-                  >
+              {sources.map((source, index) => (
+                <div
+                  className="source-card"
+                  key={`${source.filename}-${source.chunk_index}-${index}`}
+                >
 
-                    <div className="source-file">
-
-                      <span>📑</span>
-
-                      <strong>
-                        {source.filename}
-                      </strong>
-
-                    </div>
-
-                    <div className="source-info">
-
-                      <span>
-                        Chunk{" "}
-                        {source.chunk_index}
-                      </span>
-
-                      <span>
-                        Relevance{" "}
-                        {typeof source.score ===
-                        "number"
-                          ? source.score.toFixed(4)
-                          : "N/A"}
-                      </span>
-
-                    </div>
-
+                  <div className="source-file">
+                    <span>📑</span>
+                    <strong>{source.filename}</strong>
                   </div>
-                )
-              )}
+
+                  <div className="source-info">
+                    <span>
+                      Chunk {source.chunk_index}
+                    </span>
+
+                    <span>
+                      Relevance{" "}
+                      {typeof source.score === "number"
+                        ? source.score.toFixed(4)
+                        : "N/A"}
+                    </span>
+                  </div>
+
+                </div>
+              ))}
 
             </div>
           )}
 
         </section>
 
-        {/* ==================================================
-            CONVERSATION HISTORY
-        ================================================== */}
-
+        {/* HISTORY */}
         <section className="card">
 
           <div className="history-header">
 
             <div className="card-header">
 
-              <div className="section-icon">
-                💬
-              </div>
+              <div className="section-icon">💬</div>
 
               <div>
-                <h2>
-                  Conversation History
-                </h2>
-
+                <h2>Conversation History</h2>
                 <p>
-                  Previous questions and AI
-                  answers.
+                  Previous questions and AI answers.
                 </p>
               </div>
 
@@ -779,9 +922,7 @@ function App() {
               {chatHistory.length > 0 && (
                 <button
                   className="secondary-button"
-                  onClick={
-                    clearChatHistory
-                  }
+                  onClick={clearChatHistory}
                 >
                   🗑 Clear
                 </button>
@@ -792,140 +933,101 @@ function App() {
           </div>
 
           {loadingHistory ? (
-
             <div className="empty-state">
-
               <div className="loading-spinner"></div>
-
               <p>
                 Loading conversation history...
               </p>
-
             </div>
-
           ) : chatHistory.length === 0 ? (
-
             <div className="empty-state">
-
-              <div className="empty-icon">
-                💬
-              </div>
-
-              <h3>
-                No conversations yet
-              </h3>
-
+              <div className="empty-icon">💬</div>
+              <h3>No conversations yet</h3>
               <p>
-                Ask DocuMind AI a question
-                to start your conversation.
+                Ask DocuMind AI a question to start
+                your conversation.
               </p>
-
             </div>
-
           ) : (
-
             <div className="history-list">
 
-              {chatHistory.map(
-                (chat, index) => (
-                  <div
-                    className="history-item"
-                    key={
-                      chat.id ||
-                      chat._id ||
-                      index
-                    }
-                  >
+              {chatHistory.map((chat, index) => (
+                <div
+                  className="history-item"
+                  key={
+                    chat.id ||
+                    chat._id ||
+                    index
+                  }
+                >
 
-                    <div className="history-number">
-                      {index + 1}
-                    </div>
+                  <div className="history-number">
+                    {index + 1}
+                  </div>
 
-                    <div className="history-content">
+                  <div className="history-content">
 
-                      <div className="question-row">
+                    <div className="question-row">
 
-                        <div className="avatar user-avatar">
-                          🧑
-                        </div>
-
-                        <div className="history-message">
-
-                          <span className="message-label">
-                            Question
-                          </span>
-
-                          <p>
-                            {chat.question}
-                          </p>
-
-                        </div>
-
+                      <div className="avatar user-avatar">
+                        🧑
                       </div>
 
-                      <div className="answer-row">
+                      <div className="history-message">
+                        <span className="message-label">
+                          Question
+                        </span>
 
-                        <div className="avatar ai-avatar">
-                          🤖
-                        </div>
-
-                        <div className="history-message">
-
-                          <span className="message-label">
-                            DocuMind AI
-                          </span>
-
-                          <p>
-                            {chat.answer}
-                          </p>
-
-                        </div>
-
+                        <p>{chat.question}</p>
                       </div>
 
-                      {chat.sources &&
-                        chat.sources.length >
-                          0 && (
-                          <div className="history-source">
-                            📚{" "}
-                            {
-                              chat.sources[0]
-                                .filename
-                            }
-                          </div>
-                        )}
+                    </div>
+
+                    <div className="answer-row">
+
+                      <div className="avatar ai-avatar">
+                        🤖
+                      </div>
+
+                      <div className="history-message">
+                        <span className="message-label">
+                          DocuMind AI
+                        </span>
+
+                        <p>{chat.answer}</p>
+                      </div>
 
                     </div>
+
+                    {chat.sources &&
+                      chat.sources.length > 0 && (
+                        <div className="history-source">
+                          📚{" "}
+                          {chat.sources[0].filename}
+                        </div>
+                      )}
 
                   </div>
-                )
-              )}
+
+                </div>
+              ))}
 
             </div>
           )}
 
         </section>
 
-        {/* ==================================================
-            SEARCH DOCUMENTS
-        ================================================== */}
-
+        {/* SEARCH */}
         <section className="card">
 
           <div className="card-header">
 
-            <div className="section-icon">
-              🔍
-            </div>
+            <div className="section-icon">🔍</div>
 
             <div>
-              <h2>
-                Search Documents
-              </h2>
-
+              <h2>Search Documents</h2>
               <p>
-                Search your knowledge base
-                using natural language.
+                Search your knowledge base using natural language.
               </p>
             </div>
 
@@ -937,14 +1039,10 @@ function App() {
               type="text"
               value={searchQuery}
               onChange={(event) =>
-                setSearchQuery(
-                  event.target.value
-                )
+                setSearchQuery(event.target.value)
               }
               onKeyDown={(event) => {
-                if (
-                  event.key === "Enter"
-                ) {
+                if (event.key === "Enter") {
                   event.preventDefault();
                   handleSearch();
                 }
@@ -972,10 +1070,7 @@ function App() {
             <div className="results">
 
               <div className="results-header">
-
-                <h3>
-                  Search Results
-                </h3>
+                <h3>Search Results</h3>
 
                 <span>
                   {searchResults.length}{" "}
@@ -983,48 +1078,38 @@ function App() {
                     ? "result"
                     : "results"}
                 </span>
-
               </div>
 
-              {searchResults.map(
-                (result, index) => (
-                  <div
-                    className="result-card"
-                    key={`${result.filename}-${result.chunk_index}-${index}`}
-                  >
+              {searchResults.map((result, index) => (
+                <div
+                  className="result-card"
+                  key={`${result.filename}-${result.chunk_index}-${index}`}
+                >
 
-                    <div className="result-top">
+                  <div className="result-top">
 
-                      <div>
+                    <div>
+                      <h4>
+                        📑 {result.filename}
+                      </h4>
 
-                        <h4>
-                          📑{" "}
-                          {result.filename}
-                        </h4>
-
-                        <span>
-                          Chunk{" "}
-                          {result.chunk_index}
-                        </span>
-
-                      </div>
-
-                      <div className="score">
-                        {typeof result.score ===
-                        "number"
-                          ? result.score.toFixed(4)
-                          : "N/A"}
-                      </div>
-
+                      <span>
+                        Chunk {result.chunk_index}
+                      </span>
                     </div>
 
-                    <p>
-                      {result.text}
-                    </p>
+                    <div className="score">
+                      {typeof result.score === "number"
+                        ? result.score.toFixed(4)
+                        : "N/A"}
+                    </div>
 
                   </div>
-                )
-              )}
+
+                  <p>{result.text}</p>
+
+                </div>
+              ))}
 
             </div>
           )}
@@ -1033,8 +1118,7 @@ function App() {
             searchQuery.trim() &&
             searchResults.length === 0 && (
               <div className="search-empty">
-                No matching document results
-                found.
+                No matching document results found.
               </div>
             )}
 
@@ -1042,21 +1126,11 @@ function App() {
 
       </main>
 
-      {/* ==================================================
-          FOOTER
-      ================================================== */}
-
       <footer>
-
-        <strong>
-          DocuMind AI
-        </strong>
-
+        <strong>DocuMind AI</strong>
         <span>
-          RAG-based Document & Knowledge
-          Assistant
+          RAG-based Document & Knowledge Assistant
         </span>
-
       </footer>
 
     </div>
