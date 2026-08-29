@@ -1,19 +1,25 @@
 """
 DocuMind AI - Document Routes
 
-Handles:
-- PDF document upload
+Features:
+- PDF upload
+- 20 MB file-size validation
 - Text extraction
 - Text chunking
 - Sentence Transformer embeddings
 - FAISS vector indexing
-- Indexed document search
+- Semantic document search
 - Duplicate document prevention
+- Document metadata
+- Upload date
+- File size
 - Document listing
+- Document deletion
 """
 
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 import json
 
 import faiss
@@ -24,9 +30,9 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 
 
-# --------------------------------------------------
+# ==================================================
 # Router
-# --------------------------------------------------
+# ==================================================
 
 router = APIRouter(
     prefix="/documents",
@@ -34,9 +40,9 @@ router = APIRouter(
 )
 
 
-# --------------------------------------------------
+# ==================================================
 # Paths
-# --------------------------------------------------
+# ==================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -48,11 +54,13 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# --------------------------------------------------
+# ==================================================
 # Configuration
-# --------------------------------------------------
+# ==================================================
 
 ALLOWED_EXTENSIONS = {".pdf"}
+
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 120
@@ -62,26 +70,26 @@ EMBEDDING_MODEL_NAME = (
 )
 
 
-# --------------------------------------------------
-# Global embedding model
-# --------------------------------------------------
+# ==================================================
+# Embedding Model
+# ==================================================
 
 embedding_model = SentenceTransformer(
     EMBEDDING_MODEL_NAME
 )
 
 
-# --------------------------------------------------
-# Index files
-# --------------------------------------------------
+# ==================================================
+# Index Files
+# ==================================================
 
 FAISS_INDEX_FILE = INDEX_DIR / "documents.faiss"
 METADATA_FILE = INDEX_DIR / "metadata.json"
 
 
-# --------------------------------------------------
-# Helper: Load metadata
-# --------------------------------------------------
+# ==================================================
+# Metadata Helpers
+# ==================================================
 
 def load_metadata() -> list:
     """
@@ -97,6 +105,7 @@ def load_metadata() -> list:
             "r",
             encoding="utf-8",
         ) as file:
+
             data = json.load(file)
 
         if isinstance(data, list):
@@ -108,13 +117,9 @@ def load_metadata() -> list:
         return []
 
 
-# --------------------------------------------------
-# Helper: Save metadata
-# --------------------------------------------------
-
 def save_metadata(metadata: list) -> None:
     """
-    Save chunk metadata to disk.
+    Save metadata to disk.
     """
 
     with open(
@@ -122,6 +127,7 @@ def save_metadata(metadata: list) -> None:
         "w",
         encoding="utf-8",
     ) as file:
+
         json.dump(
             metadata,
             file,
@@ -130,36 +136,32 @@ def save_metadata(metadata: list) -> None:
         )
 
 
-# --------------------------------------------------
-# Helper: Load FAISS index
-# --------------------------------------------------
+# ==================================================
+# FAISS Helpers
+# ==================================================
 
 def load_index():
     """
     Load existing FAISS index.
-
-    Returns None when no index exists yet.
     """
 
     if not FAISS_INDEX_FILE.exists():
         return None
 
     try:
+
         return faiss.read_index(
             str(FAISS_INDEX_FILE)
         )
 
     except Exception:
+
         return None
 
 
-# --------------------------------------------------
-# Helper: Save FAISS index
-# --------------------------------------------------
-
 def save_index(index) -> None:
     """
-    Save FAISS index to disk.
+    Save FAISS index.
     """
 
     faiss.write_index(
@@ -168,21 +170,20 @@ def save_index(index) -> None:
     )
 
 
-# --------------------------------------------------
-# Helper: Extract PDF text
-# --------------------------------------------------
+# ==================================================
+# PDF Extraction
+# ==================================================
 
 def extract_pdf_text(
     file_path: Path,
 ) -> tuple[str, int]:
     """
-    Extract text from every page of a PDF.
-
-    Returns:
-        (full_text, pages_processed)
+    Extract text from all PDF pages.
     """
 
-    reader = PdfReader(str(file_path))
+    reader = PdfReader(
+        str(file_path)
+    )
 
     pages = []
     pages_processed = 0
@@ -192,6 +193,7 @@ def extract_pdf_text(
         text = page.extract_text()
 
         if text:
+
             text = text.strip()
 
             if text:
@@ -201,12 +203,15 @@ def extract_pdf_text(
 
     full_text = "\n\n".join(pages)
 
-    return full_text, pages_processed
+    return (
+        full_text,
+        pages_processed,
+    )
 
 
-# --------------------------------------------------
-# Helper: Chunk text
-# --------------------------------------------------
+# ==================================================
+# Text Chunking
+# ==================================================
 
 def chunk_text(
     text: str,
@@ -223,6 +228,7 @@ def chunk_text(
         return []
 
     if overlap >= chunk_size:
+
         raise ValueError(
             "Chunk overlap must be smaller than chunk size."
         )
@@ -252,15 +258,15 @@ def chunk_text(
     return chunks
 
 
-# --------------------------------------------------
-# Helper: Create embeddings
-# --------------------------------------------------
+# ==================================================
+# Embeddings
+# ==================================================
 
 def create_embeddings(
     chunks: list[str],
 ) -> np.ndarray:
     """
-    Convert text chunks into normalized embeddings.
+    Generate normalized embeddings.
     """
 
     embeddings = embedding_model.encode(
@@ -275,46 +281,49 @@ def create_embeddings(
     )
 
 
-# --------------------------------------------------
-# Helper: Check duplicate document
-# --------------------------------------------------
+# ==================================================
+# Duplicate Check
+# ==================================================
 
 def document_already_indexed(
     filename: str,
 ) -> bool:
-    """
-    Check whether a document with the same
-    original filename is already indexed.
-    """
 
     metadata = load_metadata()
 
     for item in metadata:
 
-        if item.get("filename") == filename:
+        if item.get(
+            "filename"
+        ) == filename:
+
             return True
 
     return False
 
 
-# --------------------------------------------------
-# Helper: Add chunks to FAISS
-# --------------------------------------------------
+# ==================================================
+# Add To Vector Store
+# ==================================================
 
 def add_to_vector_store(
     chunks: list[str],
     filename: str,
     stored_filename: str,
+    file_size: int,
+    upload_date: str,
 ) -> int:
     """
-    Add document chunks and their embeddings
-    to the persistent FAISS vector store.
+    Add document chunks to FAISS
+    and save metadata.
     """
 
     if not chunks:
         return 0
 
-    embeddings = create_embeddings(chunks)
+    embeddings = create_embeddings(
+        chunks
+    )
 
     dimension = embeddings.shape[1]
 
@@ -329,17 +338,16 @@ def add_to_vector_store(
     if index.d != dimension:
 
         raise ValueError(
-            "Embedding dimension does not match "
-            "the existing FAISS index."
+            "Embedding dimension does not match existing index."
         )
+
+    starting_id = index.ntotal
 
     index.add(embeddings)
 
     save_index(index)
 
     metadata = load_metadata()
-
-    starting_id = len(metadata)
 
     for i, chunk in enumerate(chunks):
 
@@ -350,6 +358,8 @@ def add_to_vector_store(
                 "stored_filename": stored_filename,
                 "chunk_index": i,
                 "text": chunk,
+                "file_size": file_size,
+                "upload_date": upload_date,
             }
         )
 
@@ -358,9 +368,9 @@ def add_to_vector_store(
     return len(chunks)
 
 
-# --------------------------------------------------
+# ==================================================
 # Upload Document
-# --------------------------------------------------
+# ==================================================
 
 @router.post(
     "/upload",
@@ -370,9 +380,7 @@ async def upload_document(
     file: UploadFile = File(...),
 ):
     """
-    Upload a PDF document, extract its text,
-    split it into chunks and create embeddings
-    for FAISS vector search.
+    Upload, process and index a PDF.
     """
 
     # --------------------------------------------------
@@ -398,14 +406,11 @@ async def upload_document(
 
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Unsupported file type. "
-                "Only PDF files are supported."
-            ),
+            detail="Unsupported file type. Only PDF files are supported.",
         )
 
     # --------------------------------------------------
-    # Prevent duplicate indexing
+    # Duplicate check
     # --------------------------------------------------
 
     if document_already_indexed(
@@ -423,7 +428,55 @@ async def upload_document(
         }
 
     # --------------------------------------------------
-    # Generate safe stored filename
+    # Read file
+    # --------------------------------------------------
+
+    try:
+
+        file_content = await file.read()
+
+        file_size = len(
+            file_content
+        )
+
+        if file_size == 0:
+
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded file is empty.",
+            )
+
+        # --------------------------------------------------
+        # File size validation
+        # --------------------------------------------------
+
+        if file_size > MAX_FILE_SIZE:
+
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "File is too large. "
+                    "Maximum allowed size is 20 MB."
+                ),
+            )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        print(
+            "FILE READ ERROR:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to read uploaded file.",
+        )
+
+    # --------------------------------------------------
+    # Stored filename
     # --------------------------------------------------
 
     stored_filename = (
@@ -435,19 +488,10 @@ async def upload_document(
     )
 
     # --------------------------------------------------
-    # Save uploaded file
+    # Save file
     # --------------------------------------------------
 
     try:
-
-        file_content = await file.read()
-
-        if not file_content:
-
-            raise HTTPException(
-                status_code=400,
-                detail="Uploaded file is empty.",
-            )
 
         with open(
             file_path,
@@ -458,9 +502,6 @@ async def upload_document(
                 file_content
             )
 
-    except HTTPException:
-        raise
-
     except Exception as exc:
 
         print(
@@ -470,10 +511,18 @@ async def upload_document(
 
         raise HTTPException(
             status_code=500,
-            detail=(
-                "Failed to save the uploaded document."
-            ),
+            detail="Failed to save uploaded document.",
         )
+
+    # --------------------------------------------------
+    # Upload timestamp
+    # --------------------------------------------------
+
+    upload_date = (
+        datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
 
     # --------------------------------------------------
     # Extract → Chunk → Embed → Index
@@ -482,7 +531,9 @@ async def upload_document(
     try:
 
         text, pages_processed = (
-            extract_pdf_text(file_path)
+            extract_pdf_text(
+                file_path
+            )
         )
 
         if not text.strip():
@@ -491,7 +542,9 @@ async def upload_document(
                 "No extractable text was found in the PDF."
             )
 
-        chunks = chunk_text(text)
+        chunks = chunk_text(
+            text
+        )
 
         if not chunks:
 
@@ -503,6 +556,8 @@ async def upload_document(
             chunks=chunks,
             filename=original_filename,
             stored_filename=stored_filename,
+            file_size=file_size,
+            upload_date=upload_date,
         )
 
         return {
@@ -510,6 +565,12 @@ async def upload_document(
             "already_indexed": False,
             "filename": original_filename,
             "stored_filename": stored_filename,
+            "file_size": file_size,
+            "file_size_mb": round(
+                file_size / (1024 * 1024),
+                2,
+            ),
+            "upload_date": upload_date,
             "pages_processed": pages_processed,
             "chunks_created": chunks_created,
             "message": (
@@ -553,9 +614,9 @@ async def upload_document(
         )
 
 
-# --------------------------------------------------
-# Search Indexed Documents
-# --------------------------------------------------
+# ==================================================
+# Search Documents
+# ==================================================
 
 @router.get(
     "/search",
@@ -566,10 +627,7 @@ async def search_documents(
     top_k: int = 5,
 ):
     """
-    Search the FAISS vector store using
-    semantic similarity.
-
-    Duplicate chunks are filtered from results.
+    Semantic search using FAISS.
     """
 
     query = query.strip()
@@ -591,7 +649,10 @@ async def search_documents(
     index = load_index()
     metadata = load_metadata()
 
-    if index is None or index.ntotal == 0:
+    if (
+        index is None
+        or index.ntotal == 0
+    ):
 
         return {
             "success": True,
@@ -655,7 +716,9 @@ async def search_documents(
             if unique_key in seen:
                 continue
 
-            seen.add(unique_key)
+            seen.add(
+                unique_key
+            )
 
             results.append(
                 {
@@ -666,6 +729,12 @@ async def search_documents(
                     ),
                     "chunk_index": chunk_index,
                     "text": text,
+                    "file_size": item.get(
+                        "file_size"
+                    ),
+                    "upload_date": item.get(
+                        "upload_date"
+                    ),
                 }
             )
 
@@ -692,30 +761,18 @@ async def search_documents(
         )
 
 
-# --------------------------------------------------
+# ==================================================
 # Index Status
-# --------------------------------------------------
+# ==================================================
 
 @router.get(
     "/status",
     summary="Get document index status",
 )
 async def document_index_status():
-    """
-    Return the current vector-store status.
-    """
 
     index = load_index()
     metadata = load_metadata()
-
-    if index is None:
-
-        return {
-            "success": True,
-            "indexed": False,
-            "vectors": 0,
-            "metadata_entries": len(metadata),
-        }
 
     unique_documents = set()
 
@@ -730,6 +787,18 @@ async def document_index_status():
                 filename
             )
 
+    if index is None:
+
+        return {
+            "success": True,
+            "indexed": False,
+            "vectors": 0,
+            "metadata_entries": len(metadata),
+            "unique_documents": len(
+                unique_documents
+            ),
+        }
+
     return {
         "success": True,
         "indexed": True,
@@ -742,9 +811,9 @@ async def document_index_status():
     }
 
 
-# --------------------------------------------------
-# List Uploaded Documents
-# --------------------------------------------------
+# ==================================================
+# List Documents
+# ==================================================
 
 @router.get(
     "/list",
@@ -752,7 +821,8 @@ async def document_index_status():
 )
 async def list_documents():
     """
-    Return all uniquely indexed documents.
+    Return unique indexed documents
+    with metadata.
     """
 
     metadata = load_metadata()
@@ -770,12 +840,27 @@ async def list_documents():
 
         if filename not in documents:
 
+            file_size = item.get(
+                "file_size",
+                0,
+            )
+
+            upload_date = item.get(
+                "upload_date"
+            )
+
             documents[filename] = {
                 "filename": filename,
                 "stored_filename": item.get(
                     "stored_filename"
                 ),
                 "chunks": 0,
+                "file_size": file_size,
+                "file_size_mb": round(
+                    file_size / (1024 * 1024),
+                    2,
+                ),
+                "upload_date": upload_date,
             }
 
         documents[filename]["chunks"] += 1
@@ -787,5 +872,175 @@ async def list_documents():
         ),
         "total_documents": len(
             documents
+        ),
+    }
+
+
+# ==================================================
+# Delete Document
+# ==================================================
+
+@router.delete(
+    "/{filename}",
+    summary="Delete indexed document",
+)
+async def delete_document(
+    filename: str,
+):
+    """
+    Delete a document from:
+
+    - FAISS index
+    - metadata
+    - uploads folder
+    """
+
+    filename = Path(
+        filename
+    ).name
+
+    metadata = load_metadata()
+
+    if not metadata:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found.",
+        )
+
+    remaining_metadata = []
+
+    removed_items = []
+
+    for item in metadata:
+
+        if item.get(
+            "filename"
+        ) == filename:
+
+            removed_items.append(
+                item
+            )
+
+        else:
+
+            remaining_metadata.append(
+                item
+            )
+
+    if not removed_items:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found.",
+        )
+
+    # --------------------------------------------------
+    # Rebuild FAISS index
+    # --------------------------------------------------
+
+    try:
+
+        remaining_embeddings = []
+
+        if remaining_metadata:
+
+            texts = [
+                item.get(
+                    "text",
+                    ""
+                )
+                for item in remaining_metadata
+            ]
+
+            remaining_embeddings = create_embeddings(
+                texts
+            )
+
+        if remaining_embeddings:
+
+            dimension = (
+                remaining_embeddings.shape[1]
+            )
+
+            new_index = faiss.IndexFlatIP(
+                dimension
+            )
+
+            new_index.add(
+                remaining_embeddings
+            )
+
+            save_index(
+                new_index
+            )
+
+        else:
+
+            if FAISS_INDEX_FILE.exists():
+                FAISS_INDEX_FILE.unlink()
+
+    except Exception as exc:
+
+        print(
+            "INDEX REBUILD ERROR:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to rebuild document index.",
+        )
+
+    # --------------------------------------------------
+    # Re-number metadata IDs
+    # --------------------------------------------------
+
+    for new_id, item in enumerate(
+        remaining_metadata
+    ):
+
+        item["id"] = new_id
+
+    save_metadata(
+        remaining_metadata
+    )
+
+    # --------------------------------------------------
+    # Delete physical file
+    # --------------------------------------------------
+
+    stored_filename = removed_items[0].get(
+        "stored_filename"
+    )
+
+    if stored_filename:
+
+        stored_file_path = (
+            UPLOAD_DIR /
+            Path(stored_filename).name
+        )
+
+        try:
+
+            if stored_file_path.exists():
+                stored_file_path.unlink()
+
+        except Exception as exc:
+
+            print(
+                "UPLOAD DELETE ERROR:",
+                repr(exc),
+            )
+
+    return {
+        "success": True,
+        "filename": filename,
+        "chunks_deleted": len(
+            removed_items
+        ),
+        "message": (
+            f"Document '{filename}' "
+            "deleted successfully."
         ),
     }
