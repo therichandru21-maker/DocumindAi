@@ -98,8 +98,9 @@ function App() {
 
       setFile(null);
 
-      const fileInput =
-        document.getElementById("document-upload");
+      const fileInput = document.getElementById(
+        "document-upload"
+      );
 
       if (fileInput) {
         fileInput.value = "";
@@ -118,7 +119,9 @@ function App() {
   // --------------------------------------------------
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim();
+
+    if (!query) {
       return;
     }
 
@@ -128,7 +131,7 @@ function App() {
     try {
       const response = await fetch(
         `${API_URL}/documents/search?query=${encodeURIComponent(
-          searchQuery
+          query
         )}&top_k=5`
       );
 
@@ -209,7 +212,7 @@ function App() {
   };
 
   // --------------------------------------------------
-  // Clear History
+  // Clear Chat History
   // --------------------------------------------------
 
   const clearChatHistory = async () => {
@@ -249,14 +252,15 @@ function App() {
   return (
     <div className="app">
 
-      {/* ================================================
+      {/* ==================================================
           HEADER
-      ================================================= */}
+      ================================================== */}
 
       <header className="header">
         <div className="header-content">
 
           <div className="brand">
+
             <div className="brand-icon">
               📄
             </div>
@@ -269,6 +273,7 @@ function App() {
                 assistant
               </p>
             </div>
+
           </div>
 
           <div className="status-pill">
@@ -279,19 +284,20 @@ function App() {
         </div>
       </header>
 
-      {/* ================================================
+      {/* ==================================================
           MAIN
-      ================================================= */}
+      ================================================== */}
 
       <main className="container">
 
-        {/* ------------------------------------------------
+        {/* ==================================================
             HERO
-        ------------------------------------------------ */}
+        ================================================== */}
 
         <section className="hero">
 
-          <div>
+          <div className="hero-content">
+
             <span className="hero-label">
               RAG-POWERED DOCUMENT ASSISTANT
             </span>
@@ -307,6 +313,7 @@ function App() {
               contents and ask DocuMind AI questions
               using natural language.
             </p>
+
           </div>
 
           <div className="hero-icon">
@@ -315,9 +322,9 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------
-            UPLOAD
-        ------------------------------------------------ */}
+        {/* ==================================================
+            UPLOAD DOCUMENT
+        ================================================== */}
 
         <section className="card">
 
@@ -354,7 +361,7 @@ function App() {
             <input
               id="document-upload"
               type="file"
-              accept=".pdf"
+              accept=".pdf,application/pdf"
               onChange={(event) => {
                 const selectedFile =
                   event.target.files?.[0];
@@ -367,6 +374,7 @@ function App() {
 
             {file && (
               <div className="selected-file">
+
                 <span>📎</span>
 
                 <div>
@@ -375,12 +383,15 @@ function App() {
                   </strong>
 
                   <small>
-                    {(file.size / 1024 / 1024).toFixed(
-                      2
-                    )}{" "}
+                    {(
+                      file.size /
+                      1024 /
+                      1024
+                    ).toFixed(2)}{" "}
                     MB
                   </small>
                 </div>
+
               </div>
             )}
 
@@ -410,9 +421,9 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------
+        {/* ==================================================
             ASK AI
-        ------------------------------------------------ */}
+        ================================================== */}
 
         <section className="card ai-section">
 
@@ -451,12 +462,14 @@ function App() {
               }}
               placeholder="e.g. What is my seminar fee?"
               rows={4}
+              disabled={asking}
             />
 
             <div className="question-footer">
 
               <span>
-                Press Enter to ask
+                Press Enter to ask • Shift + Enter
+                for new line
               </span>
 
               <button
@@ -482,13 +495,16 @@ function App() {
             </div>
           )}
 
-          {/* Answer */}
+          {/* ==================================================
+              ANSWER
+          ================================================== */}
 
           {answer && (
             <div className="answer-card">
 
               <div className="answer-title">
                 <span>💡</span>
+
                 <h3>Answer</h3>
               </div>
 
@@ -497,13 +513,18 @@ function App() {
             </div>
           )}
 
-          {/* Sources */}
+          {/* ==================================================
+              SOURCES
+          ================================================== */}
 
           {sources.length > 0 && (
             <div className="sources">
 
               <div className="sources-title">
-                <h3>📚 Sources</h3>
+
+                <h3>
+                  📚 Sources
+                </h3>
 
                 <span>
                   {sources.length}{" "}
@@ -511,23 +532,28 @@ function App() {
                     ? "source"
                     : "sources"}
                 </span>
+
               </div>
 
               {sources.map(
                 (source, index) => (
                   <div
                     className="source-card"
-                    key={index}
+                    key={`${source.filename}-${source.chunk_index}-${index}`}
                   >
 
                     <div className="source-file">
-                      📑
+
+                      <span>📑</span>
+
                       <strong>
                         {source.filename}
                       </strong>
+
                     </div>
 
                     <div className="source-info">
+
                       <span>
                         Chunk{" "}
                         {source.chunk_index}
@@ -535,10 +561,12 @@ function App() {
 
                       <span>
                         Relevance{" "}
-                        {source.score?.toFixed(
-                          4
-                        )}
+                        {typeof source.score ===
+                        "number"
+                          ? source.score.toFixed(4)
+                          : "N/A"}
                       </span>
+
                     </div>
 
                   </div>
@@ -550,9 +578,9 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------
-            HISTORY
-        ------------------------------------------------ */}
+        {/* ==================================================
+            CONVERSATION HISTORY
+        ================================================== */}
 
         <section className="card">
 
@@ -599,14 +627,23 @@ function App() {
 
           </div>
 
+          {/* Loading */}
+
           {loadingHistory ? (
             <div className="empty-state">
+
               <div className="loading-spinner"></div>
+
               <p>
                 Loading conversation history...
               </p>
+
             </div>
+
           ) : chatHistory.length === 0 ? (
+
+            /* Empty */
+
             <div className="empty-state">
 
               <div className="empty-icon">
@@ -623,14 +660,22 @@ function App() {
               </p>
 
             </div>
+
           ) : (
+
+            /* History */
+
             <div className="history-list">
 
               {chatHistory.map(
                 (chat, index) => (
                   <div
                     className="history-item"
-                    key={index}
+                    key={
+                      chat.id ||
+                      chat._id ||
+                      index
+                    }
                   >
 
                     <div className="history-number">
@@ -639,13 +684,16 @@ function App() {
 
                     <div className="history-content">
 
+                      {/* Question */}
+
                       <div className="question-row">
 
                         <div className="avatar user-avatar">
                           🧑
                         </div>
 
-                        <div>
+                        <div className="history-message">
+
                           <span className="message-label">
                             Question
                           </span>
@@ -653,9 +701,12 @@ function App() {
                           <p>
                             {chat.question}
                           </p>
+
                         </div>
 
                       </div>
+
+                      {/* Answer */}
 
                       <div className="answer-row">
 
@@ -663,7 +714,8 @@ function App() {
                           🤖
                         </div>
 
-                        <div>
+                        <div className="history-message">
+
                           <span className="message-label">
                             DocuMind AI
                           </span>
@@ -671,13 +723,15 @@ function App() {
                           <p>
                             {chat.answer}
                           </p>
+
                         </div>
 
                       </div>
 
+                      {/* Source */}
+
                       {chat.sources &&
-                        chat.sources.length >
-                          0 && (
+                        chat.sources.length > 0 && (
                           <div className="history-source">
                             📚{" "}
                             {
@@ -698,9 +752,9 @@ function App() {
 
         </section>
 
-        {/* ------------------------------------------------
-            SEARCH
-        ------------------------------------------------ */}
+        {/* ==================================================
+            SEARCH DOCUMENTS
+        ================================================== */}
 
         <section className="card">
 
@@ -737,10 +791,12 @@ function App() {
                 if (
                   event.key === "Enter"
                 ) {
+                  event.preventDefault();
                   handleSearch();
                 }
               }}
               placeholder="Search documents..."
+              disabled={searching}
             />
 
             <button
@@ -762,25 +818,31 @@ function App() {
             <div className="results">
 
               <div className="results-header">
+
                 <h3>
                   Search Results
                 </h3>
 
                 <span>
-                  {searchResults.length} results
+                  {searchResults.length}{" "}
+                  {searchResults.length === 1
+                    ? "result"
+                    : "results"}
                 </span>
+
               </div>
 
               {searchResults.map(
                 (result, index) => (
                   <div
                     className="result-card"
-                    key={index}
+                    key={`${result.filename}-${result.chunk_index}-${index}`}
                   >
 
                     <div className="result-top">
 
                       <div>
+
                         <h4>
                           📑{" "}
                           {result.filename}
@@ -790,12 +852,14 @@ function App() {
                           Chunk{" "}
                           {result.chunk_index}
                         </span>
+
                       </div>
 
                       <div className="score">
-                        {result.score?.toFixed(
-                          4
-                        )}
+                        {typeof result.score ===
+                        "number"
+                          ? result.score.toFixed(4)
+                          : "N/A"}
                       </div>
 
                     </div>
@@ -811,20 +875,33 @@ function App() {
             </div>
           )}
 
+          {!searching &&
+            searchQuery.trim() &&
+            searchResults.length === 0 && (
+              <div className="search-empty">
+                No matching document results found.
+              </div>
+            )}
+
         </section>
 
       </main>
 
-      {/* ================================================
+      {/* ==================================================
           FOOTER
-      ================================================= */}
+      ================================================== */}
 
       <footer>
-        <strong>DocuMind AI</strong>
+
+        <strong>
+          DocuMind AI
+        </strong>
+
         <span>
           RAG-based Document & Knowledge
           Assistant
         </span>
+
       </footer>
 
     </div>

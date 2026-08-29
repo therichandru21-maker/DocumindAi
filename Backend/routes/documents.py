@@ -9,6 +9,7 @@ Handles:
 - FAISS vector indexing
 - Indexed document search
 - Duplicate document prevention
+- Document listing
 """
 
 from pathlib import Path
@@ -319,14 +320,12 @@ def add_to_vector_store(
 
     index = load_index()
 
-    # Create a new index if none exists.
     if index is None:
 
         index = faiss.IndexFlatIP(
             dimension
         )
 
-    # Make sure dimensions match.
     if index.d != dimension:
 
         raise ValueError(
@@ -334,17 +333,14 @@ def add_to_vector_store(
             "the existing FAISS index."
         )
 
-    # Add embeddings.
     index.add(embeddings)
 
     save_index(index)
 
-    # Load existing metadata.
     metadata = load_metadata()
 
     starting_id = len(metadata)
 
-    # Store metadata for every chunk.
     for i, chunk in enumerate(chunks):
 
         metadata.append(
@@ -485,7 +481,6 @@ async def upload_document(
 
     try:
 
-        # 1. Extract text
         text, pages_processed = (
             extract_pdf_text(file_path)
         )
@@ -496,7 +491,6 @@ async def upload_document(
                 "No extractable text was found in the PDF."
             )
 
-        # 2. Create chunks
         chunks = chunk_text(text)
 
         if not chunks:
@@ -505,17 +499,11 @@ async def upload_document(
                 "No text chunks could be created."
             )
 
-        # 3. Create embeddings
-        # 4. Add to FAISS
         chunks_created = add_to_vector_store(
             chunks=chunks,
             filename=original_filename,
             stored_filename=stored_filename,
         )
-
-        # --------------------------------------------------
-        # Success
-        # --------------------------------------------------
 
         return {
             "success": True,
@@ -532,7 +520,6 @@ async def upload_document(
 
     except Exception as exc:
 
-        # Print real error in terminal.
         print(
             "\n=============================="
         )
@@ -549,7 +536,6 @@ async def upload_document(
             "==============================\n"
         )
 
-        # Remove failed upload if possible.
         try:
 
             if file_path.exists():
@@ -617,20 +603,9 @@ async def search_documents(
 
     try:
 
-        # --------------------------------------------------
-        # Create query embedding
-        # --------------------------------------------------
-
         query_embedding = create_embeddings(
             [query]
         )
-
-        # --------------------------------------------------
-        # Search more candidates than required
-        #
-        # This is important because old duplicate
-        # vectors may occupy the first few results.
-        # --------------------------------------------------
 
         search_k = min(
             max(top_k * 10, top_k),
@@ -641,10 +616,6 @@ async def search_documents(
             query_embedding,
             search_k,
         )
-
-        # --------------------------------------------------
-        # Build unique results
-        # --------------------------------------------------
 
         results = []
 
@@ -675,13 +646,6 @@ async def search_documents(
                 "text"
             )
 
-            # --------------------------------------------------
-            # Unique key
-            #
-            # Same filename + same chunk + same text
-            # should appear only once.
-            # --------------------------------------------------
-
             unique_key = (
                 filename,
                 chunk_index,
@@ -705,13 +669,8 @@ async def search_documents(
                 }
             )
 
-            # Stop after required unique results.
             if len(results) >= top_k:
                 break
-
-        # --------------------------------------------------
-        # Response
-        # --------------------------------------------------
 
         return {
             "success": True,
@@ -758,7 +717,6 @@ async def document_index_status():
             "metadata_entries": len(metadata),
         }
 
-    # Count unique documents.
     unique_documents = set()
 
     for item in metadata:
@@ -780,5 +738,54 @@ async def document_index_status():
         "metadata_entries": len(metadata),
         "unique_documents": len(
             unique_documents
+        ),
+    }
+
+
+# --------------------------------------------------
+# List Uploaded Documents
+# --------------------------------------------------
+
+@router.get(
+    "/list",
+    summary="List uploaded documents",
+)
+async def list_documents():
+    """
+    Return all uniquely indexed documents.
+    """
+
+    metadata = load_metadata()
+
+    documents = {}
+
+    for item in metadata:
+
+        filename = item.get(
+            "filename"
+        )
+
+        if not filename:
+            continue
+
+        if filename not in documents:
+
+            documents[filename] = {
+                "filename": filename,
+                "stored_filename": item.get(
+                    "stored_filename"
+                ),
+                "chunks": 0,
+            }
+
+        documents[filename]["chunks"] += 1
+
+    return {
+        "success": True,
+        "documents": list(
+            documents.values()
+        ),
+        "total_documents": len(
+            documents
         ),
     }
