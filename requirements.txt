@@ -1,0 +1,37 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pydantic-settings
+
+# Document processing
+pypdf
+python-docx
+
+# RAG / Embeddings
+langchain
+langchain-community
+langchain-google-genai
+sentence-transformers
+faiss-cpu
+
+# Frontend - later phase
+streamlit
+
+# HTTP / utilities
+python-multipart
+requests
+
+# Testing
+pytest
+httpx
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pypdf
+python-multipart
+
+sentence-transformers
+faiss-cpu
+numpy
