@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "id": "0f7d3a7a89d346218a0df31aa56eefbb",
+    "filename": "f08fdaa24d654ae580df3eaeecd2647d.pdf",
+    "extension": ".pdf",
+    "stored_filename": "0f7d3a7a89d346218a0df31aa56eefbb.pdf",
+    "size": 71667,
+    "sha256": "3f933a83d7151840da99f682da285ca3452e774987f44c8b4c370f91d6c2b365",
+    "created_at": "2026-09-04T11:44:06.049368+00:00",
+    "text": "WEB PAYMENT CONFIRMATION SLIP Student ID. : SEC25AD204 Class : 1 AIDS C Name : CHANDRU S Term Name : 2025-26/W1 Tran Id : 140271 PG Tran Id : 746509881 Trans. Date : 06/11/2025 Seminar Fees - 2025-26 : 25000.00 Total : 25000.00 Computer generated Web Payment Confirmation Slip 11/6/2025 8:40:28 PM 11/6/25, 8:40 PM Fees Receipt about:blank 1/1",
+    "raw_text": "WEB PAYMENT CONFIRMATION SLIP\nStudent ID. : SEC25AD204 Class : 1 AIDS C\nName : CHANDRU S Term Name : 2025-26/W1\nTran Id : 140271 PG Tran Id : 746509881\nTrans. Date : 06/11/2025\n Seminar Fees - 2025-26 : 25000.00\n Total : 25000.00\nComputer generated Web Payment Confirmation Slip 11/6/2025 8:40:28 PM\n \n11/6/25, 8:40 PM Fees Receipt\nabout:blank 1/1",
+    "chunks_data": [
+      {
+        "chunk_index": 0,
+        "text": "WEB PAYMENT CONFIRMATION SLIP Student ID. : SEC25AD204 Class : 1 AIDS C Name : CHANDRU S Term Name : 2025-26/W1 Tran Id : 140271 PG Tran Id : 746509881 Trans. Date : 06/11/2025 Seminar Fees - 2025-26 : 25000.00 Total : 25000.00 Computer generated Web Payment Confirmation Slip 11/6/2025 8:40:28 PM 11/6/25, 8:40 PM Fees Receipt about:blank 1/1"
+      }
+    ]
+  }
+]

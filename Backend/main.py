@@ -2,20 +2,19 @@ import os
 import re
 import json
 import uuid
+import hashlib
 import zipfile
 from pathlib import Path
-from typing import List, Dict, Any
-from datetime import datetime
-from difflib import SequenceMatcher
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-
-# ============================================================
-# OPTIONAL DOCUMENT LIBRARIES
-# ============================================================
+# ---------------------------------------------------------
+# OPTIONAL LIBRARIES
+# ---------------------------------------------------------
 
 try:
     from pypdf import PdfReader
@@ -37,31 +36,29 @@ try:
 except Exception:
     load_workbook = None
 
-
-# ============================================================
-# GEMINI
-# ============================================================
-
 try:
     from google import genai
 except Exception:
     genai = None
 
 
-# ============================================================
-# CONFIG
-# ============================================================
+# ---------------------------------------------------------
+# PATHS
+# ---------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
 
 UPLOAD_DIR = BASE_DIR / "uploads"
 DATA_DIR = BASE_DIR / "data"
-
 DOCUMENTS_FILE = DATA_DIR / "documents.json"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+
+# ---------------------------------------------------------
+# CONFIG
+# ---------------------------------------------------------
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
@@ -72,27 +69,26 @@ SUPPORTED_EXTENSIONS = {
     ".zip",
 }
 
-
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
+CHUNK_SIZE = 450
+CHUNK_OVERLAP = 70
 
-# IMPORTANT:
-# Smaller chunks make search much more specific.
-CHUNK_SIZE = 250
-CHUNK_OVERLAP = 50
+MAX_SEARCH_RESULTS = 6
+MAX_FIELD_RESULTS = 6
+
+MIN_SEARCH_SCORE = 0.08
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
+)
 
 
-# Search settings
-MAX_SEARCH_RESULTS = 8
-MAX_RESULTS_PER_DOCUMENT = 4
-
-# Lower threshold than your old version.
-MIN_SEARCH_SCORE = 0.05
-
-
-# ============================================================
-# FASTAPI
-# ============================================================
+# ---------------------------------------------------------
+# APP
+# ---------------------------------------------------------
 
 app = FastAPI(
     title="DocuMind AI",
@@ -101,9 +97,9 @@ app = FastAPI(
 )
 
 
-# ============================================================
+# ---------------------------------------------------------
 # CORS
-# ============================================================
+# ---------------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -119,9 +115,26 @@ app.add_middleware(
 )
 
 
-# ============================================================
+# ---------------------------------------------------------
+# GEMINI
+# ---------------------------------------------------------
+
+gemini_client = None
+
+if genai and GEMINI_API_KEY:
+    try:
+        gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+        print("Gemini AI initialized")
+    except Exception as exc:
+        print("Gemini initialization failed:", exc)
+        gemini_client = None
+
+
+# ---------------------------------------------------------
 # MODELS
-# ============================================================
+# ---------------------------------------------------------
 
 class AskRequest(BaseModel):
     question: str
@@ -131,9 +144,189 @@ class SearchRequest(BaseModel):
     query: str
 
 
-# ============================================================
-# STORAGE
-# ============================================================
+# ---------------------------------------------------------
+# FIELD ALIASES
+# ---------------------------------------------------------
+
+FIELD_ALIASES = {
+
+    "name": [
+        "name",
+        "student name",
+        "candidate name",
+        "full name",
+        "employee name",
+        "customer name",
+    ],
+
+    "student id": [
+        "student id",
+        "studentid",
+        "student no",
+        "student number",
+        "roll no",
+        "roll number",
+        "register number",
+        "registration number",
+        "reg no",
+        "reg number",
+    ],
+
+    "class": [
+        "class",
+        "class name",
+        "class section",
+        "section",
+        "class/section",
+    ],
+
+    "course": [
+        "course",
+        "course name",
+        "program",
+        "programme",
+        "degree",
+        "department",
+    ],
+
+    "term": [
+        "term",
+        "term name",
+        "semester",
+        "academic term",
+        "academic year",
+    ],
+
+    "transaction id": [
+        "tran id",
+        "transaction id",
+        "transaction no",
+        "transaction number",
+        "txn id",
+        "txn number",
+    ],
+
+    "pg transaction id": [
+        "pg tran id",
+        "pg transaction id",
+        "pg txn id",
+        "pg transaction number",
+    ],
+
+    "date": [
+        "date",
+        "transaction date",
+        "trans date",
+        "trans. date",
+        "payment date",
+        "issued date",
+        "issue date",
+    ],
+
+    "time": [
+        "time",
+        "transaction time",
+        "payment time",
+        "issued time",
+    ],
+
+    "amount": [
+        "amount",
+        "amount paid",
+        "paid amount",
+        "payment amount",
+    ],
+
+    "fees": [
+        "fees",
+        "fee",
+        "seminar fees",
+        "seminar fee",
+        "tuition fees",
+        "tuition fee",
+    ],
+
+    "total": [
+        "total",
+        "total amount",
+        "grand total",
+        "total paid",
+        "total fees",
+        "amount payable",
+        "net amount",
+    ],
+
+    "email": [
+        "email",
+        "email address",
+        "mail",
+        "mail id",
+    ],
+
+    "phone": [
+        "phone",
+        "phone number",
+        "mobile",
+        "mobile number",
+        "contact number",
+        "contact no",
+    ],
+
+    "address": [
+        "address",
+        "home address",
+        "permanent address",
+        "communication address",
+    ],
+
+    "status": [
+        "status",
+        "payment status",
+        "application status",
+        "result",
+    ],
+}
+
+
+# ---------------------------------------------------------
+# QUESTION NOISE
+# ---------------------------------------------------------
+
+QUESTION_NOISE = {
+    "what",
+    "is",
+    "the",
+    "a",
+    "an",
+    "of",
+    "my",
+    "me",
+    "tell",
+    "give",
+    "show",
+    "find",
+    "search",
+    "please",
+    "can",
+    "you",
+    "could",
+    "would",
+    "get",
+    "from",
+    "document",
+    "file",
+    "this",
+    "that",
+    "about",
+    "for",
+    "in",
+    "on",
+}
+
+
+# ---------------------------------------------------------
+# DOCUMENT STORAGE
+# ---------------------------------------------------------
 
 def load_documents() -> List[Dict[str, Any]]:
 
@@ -144,7 +337,7 @@ def load_documents() -> List[Dict[str, Any]]:
         with open(
             DOCUMENTS_FILE,
             "r",
-            encoding="utf-8",
+            encoding="utf-8"
         ) as f:
 
             data = json.load(f)
@@ -156,7 +349,10 @@ def load_documents() -> List[Dict[str, Any]]:
 
     except Exception as exc:
 
-        print("Could not load documents:", exc)
+        print(
+            "Could not load documents:",
+            exc
+        )
 
         return []
 
@@ -170,22 +366,22 @@ def save_documents(
     with open(
         temp_file,
         "w",
-        encoding="utf-8",
+        encoding="utf-8"
     ) as f:
 
         json.dump(
             documents,
             f,
             indent=2,
-            ensure_ascii=False,
+            ensure_ascii=False
         )
 
     temp_file.replace(DOCUMENTS_FILE)
 
 
-# ============================================================
-# TEXT CLEANING
-# ============================================================
+# ---------------------------------------------------------
+# TEXT HELPERS
+# ---------------------------------------------------------
 
 def clean_text(text: str) -> str:
 
@@ -194,20 +390,13 @@ def clean_text(text: str) -> str:
 
     text = text.replace(
         "\x00",
-        " ",
-    )
-
-    # Preserve sentence boundaries.
-    text = re.sub(
-        r"[ \t]+",
-        " ",
-        text,
+        " "
     )
 
     text = re.sub(
-        r"\n\s*\n+",
-        "\n\n",
-        text,
+        r"\s+",
+        " ",
+        text
     )
 
     return text.strip()
@@ -215,85 +404,29 @@ def clean_text(text: str) -> str:
 
 def normalize_text(text: str) -> str:
 
-    text = text.lower()
+    if not text:
+        return ""
 
-    text = text.replace(
-        "_",
-        " ",
-    )
+    text = text.lower()
 
     text = re.sub(
         r"[^a-z0-9\s]",
         " ",
-        text,
+        text
     )
 
     text = re.sub(
         r"\s+",
         " ",
-        text,
+        text
     )
 
     return text.strip()
 
 
-# ============================================================
-# STOP WORDS
-# ============================================================
+def normalize_label(text: str) -> str:
 
-STOP_WORDS = {
-    "the",
-    "a",
-    "an",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "to",
-    "of",
-    "in",
-    "on",
-    "for",
-    "with",
-    "and",
-    "or",
-    "but",
-    "as",
-    "at",
-    "by",
-    "from",
-    "into",
-    "about",
-    "what",
-    "which",
-    "who",
-    "when",
-    "where",
-    "why",
-    "how",
-    "can",
-    "could",
-    "would",
-    "should",
-    "do",
-    "does",
-    "did",
-    "your",
-    "you",
-    "my",
-    "me",
-    "this",
-    "that",
-    "these",
-    "those",
-    "tell",
-    "give",
-    "show",
-    "please",
-}
+    return normalize_text(text)
 
 
 def tokenize(text: str) -> List[str]:
@@ -305,78 +438,19 @@ def tokenize(text: str) -> List[str]:
     return [
         word
         for word in words
-        if word not in STOP_WORDS
-        and len(word) > 1
+        if len(word) > 1
     ]
 
 
-# ============================================================
-# FUZZY WORD MATCH
-# ============================================================
-
-def fuzzy_word_match(
-    query_word: str,
-    text_words: List[str],
-) -> float:
-
-    if not query_word:
-        return 0.0
-
-    # Exact match
-    if query_word in text_words:
-        return 1.0
-
-    # Prefix / substring match
-    for word in text_words:
-
-        if len(query_word) >= 4:
-
-            if (
-                word.startswith(query_word)
-                or query_word.startswith(word)
-            ):
-                return 0.90
-
-            if (
-                query_word in word
-                or word in query_word
-            ):
-                return 0.82
-
-    # Fuzzy spelling match
-    best = 0.0
-
-    for word in text_words:
-
-        if abs(
-            len(word) - len(query_word)
-        ) > 4:
-            continue
-
-        similarity = SequenceMatcher(
-            None,
-            query_word,
-            word,
-        ).ratio()
-
-        if similarity > best:
-            best = similarity
-
-    if best >= 0.78:
-        return best
-
-    return 0.0
-
-
-# ============================================================
-# DOCUMENT EXTRACTION
-# ============================================================
+# ---------------------------------------------------------
+# EXTRACT PDF
+# ---------------------------------------------------------
 
 def extract_pdf(path: Path) -> str:
 
     if PdfReader is None:
         raise RuntimeError(
-            "pypdf is not installed. Run: pip install pypdf"
+            "pypdf is not installed"
         )
 
     reader = PdfReader(str(path))
@@ -387,22 +461,30 @@ def extract_pdf(path: Path) -> str:
 
         try:
 
-            text = page.extract_text() or ""
+            text = page.extract_text()
 
-            if text.strip():
+            if text:
                 pages.append(text)
 
-        except Exception:
-            continue
+        except Exception as exc:
+
+            print(
+                "PDF page extraction error:",
+                exc
+            )
 
     return "\n".join(pages)
 
+
+# ---------------------------------------------------------
+# EXTRACT DOCX
+# ---------------------------------------------------------
 
 def extract_docx(path: Path) -> str:
 
     if Document is None:
         raise RuntimeError(
-            "python-docx is not installed. Run: pip install python-docx"
+            "python-docx is not installed"
         )
 
     document = Document(str(path))
@@ -411,12 +493,12 @@ def extract_docx(path: Path) -> str:
 
     for paragraph in document.paragraphs:
 
-        text = paragraph.text.strip()
+        if paragraph.text.strip():
 
-        if text:
-            parts.append(text)
+            parts.append(
+                paragraph.text
+            )
 
-    # Also read tables
     for table in document.tables:
 
         for row in table.rows:
@@ -425,38 +507,37 @@ def extract_docx(path: Path) -> str:
 
             for cell in row.cells:
 
-                text = cell.text.strip()
-
-                if text:
-                    values.append(text)
-
-            if values:
-                parts.append(
-                    " | ".join(values)
+                values.append(
+                    cell.text.strip()
                 )
+
+            parts.append(
+                " | ".join(values)
+            )
 
     return "\n".join(parts)
 
+
+# ---------------------------------------------------------
+# EXTRACT PPTX
+# ---------------------------------------------------------
 
 def extract_pptx(path: Path) -> str:
 
     if Presentation is None:
         raise RuntimeError(
-            "python-pptx is not installed. Run: pip install python-pptx"
+            "python-pptx is not installed"
         )
 
-    presentation = Presentation(str(path))
+    presentation = Presentation(
+        str(path)
+    )
 
     slides = []
 
-    for slide_number, slide in enumerate(
-        presentation.slides,
-        start=1,
-    ):
+    for slide in presentation.slides:
 
-        slide_text = [
-            f"Slide {slide_number}"
-        ]
+        slide_parts = []
 
         for shape in slide.shapes:
 
@@ -465,35 +546,39 @@ def extract_pptx(path: Path) -> str:
                 text = shape.text.strip()
 
                 if text:
-                    slide_text.append(text)
+                    slide_parts.append(text)
 
-        if len(slide_text) > 1:
+        if slide_parts:
 
             slides.append(
-                "\n".join(slide_text)
+                "\n".join(slide_parts)
             )
 
-    return "\n\n".join(slides)
+    return "\n".join(slides)
 
+
+# ---------------------------------------------------------
+# EXTRACT XLSX
+# ---------------------------------------------------------
 
 def extract_xlsx(path: Path) -> str:
 
     if load_workbook is None:
         raise RuntimeError(
-            "openpyxl is not installed. Run: pip install openpyxl"
+            "openpyxl is not installed"
         )
 
     workbook = load_workbook(
         filename=str(path),
         read_only=True,
-        data_only=True,
+        data_only=True
     )
 
-    output = []
+    parts = []
 
     for sheet in workbook.worksheets:
 
-        output.append(
+        parts.append(
             f"Sheet: {sheet.title}"
         )
 
@@ -513,12 +598,16 @@ def extract_xlsx(path: Path) -> str:
 
             if values:
 
-                output.append(
+                parts.append(
                     " | ".join(values)
                 )
 
-    return "\n".join(output)
+    return "\n".join(parts)
 
+
+# ---------------------------------------------------------
+# EXTRACT TXT
+# ---------------------------------------------------------
 
 def extract_txt(path: Path) -> str:
 
@@ -536,21 +625,25 @@ def extract_txt(path: Path) -> str:
                 encoding=encoding
             )
 
-        except UnicodeDecodeError:
+        except Exception:
             continue
 
     return ""
 
 
-# ============================================================
-# ZIP EXTRACTION
-# ============================================================
+# ---------------------------------------------------------
+# EXTRACT ZIP
+# ---------------------------------------------------------
 
 def extract_zip(path: Path) -> str:
 
-    allowed_inside = {
+    parts = []
+
+    allowed_text_extensions = {
         ".txt",
         ".md",
+        ".csv",
+        ".json",
         ".py",
         ".js",
         ".jsx",
@@ -562,93 +655,105 @@ def extract_zip(path: Path) -> str:
         ".h",
         ".css",
         ".html",
-        ".json",
-        ".csv",
         ".sql",
+        ".xml",
+        ".yaml",
+        ".yml",
     }
-
-    extracted_parts = []
 
     try:
 
         with zipfile.ZipFile(
             path,
-            "r",
+            "r"
         ) as archive:
 
-            for member in archive.infolist():
+            for info in archive.infolist():
 
-                if member.is_dir():
+                if info.is_dir():
                     continue
 
                 member_path = Path(
-                    member.filename
+                    info.filename
                 )
 
                 extension = (
                     member_path.suffix.lower()
                 )
 
-                if extension not in allowed_inside:
+                if extension not in allowed_text_extensions:
                     continue
 
-                if member.file_size > 5 * 1024 * 1024:
+                if info.file_size > 5 * 1024 * 1024:
                     continue
 
                 try:
 
-                    raw = archive.read(member)
-
-                    text = raw.decode(
-                        "utf-8",
-                        errors="ignore",
+                    data = archive.read(
+                        info
                     )
 
-                    text = clean_text(text)
+                    text = data.decode(
+                        "utf-8",
+                        errors="ignore"
+                    )
 
-                    if text:
+                    if text.strip():
 
-                        extracted_parts.append(
-                            f"File: {member.filename}\n{text}"
+                        parts.append(
+                            f"File: {info.filename}\n{text}"
                         )
 
-                except Exception:
-                    continue
+                except Exception as exc:
 
-    except Exception as exc:
+                    print(
+                        "ZIP member error:",
+                        exc
+                    )
+
+    except zipfile.BadZipFile:
 
         raise RuntimeError(
-            f"Could not read ZIP file: {exc}"
+            "Invalid ZIP file"
         )
 
-    return "\n\n".join(
-        extracted_parts
-    )
+    return "\n".join(parts)
 
 
-def extract_document_text(
-    path: Path,
-    extension: str,
+# ---------------------------------------------------------
+# DOCUMENT EXTRACTION
+# ---------------------------------------------------------
+
+def extract_document(
+    path: Path
 ) -> str:
 
-    extension = extension.lower()
+    extension = (
+        path.suffix.lower()
+    )
 
     if extension == ".pdf":
+
         return extract_pdf(path)
 
     if extension == ".docx":
+
         return extract_docx(path)
 
     if extension == ".pptx":
+
         return extract_pptx(path)
 
     if extension == ".xlsx":
+
         return extract_xlsx(path)
 
     if extension == ".txt":
+
         return extract_txt(path)
 
     if extension == ".zip":
+
         return extract_zip(path)
 
     raise ValueError(
@@ -656,9 +761,9 @@ def extract_document_text(
     )
 
 
-# ============================================================
-# SMART CHUNKING
-# ============================================================
+# ---------------------------------------------------------
+# CHUNKING
+# ---------------------------------------------------------
 
 def create_chunks(
     text: str,
@@ -668,69 +773,387 @@ def create_chunks(
 
     text = clean_text(text)
 
-    if not text:
-        return []
-
-    # Convert paragraphs into cleaner blocks.
-    paragraphs = re.split(
-        r"\n\s*\n",
-        text,
-    )
+    words = text.split()
 
     chunks = []
 
-    for paragraph in paragraphs:
+    start = 0
 
-        paragraph = paragraph.strip()
+    while start < len(words):
 
-        if not paragraph:
-            continue
+        end = min(
+            start + chunk_size,
+            len(words)
+        )
 
-        words = paragraph.split()
+        chunk = " ".join(
+            words[start:end]
+        ).strip()
 
-        # Small paragraph = one chunk
-        if len(words) <= chunk_size:
+        if chunk:
 
             chunks.append(
-                paragraph
+                chunk
             )
 
-            continue
+        if end >= len(words):
+            break
 
-        start = 0
-
-        while start < len(words):
-
-            end = min(
-                start + chunk_size,
-                len(words),
-            )
-
-            chunk = " ".join(
-                words[start:end]
-            ).strip()
-
-            if chunk:
-                chunks.append(chunk)
-
-            if end >= len(words):
-                break
-
-            start = max(
-                end - overlap,
-                start + 1,
-            )
+        start = max(
+            end - overlap,
+            start + 1
+        )
 
     return chunks
 
 
-# ============================================================
+# ---------------------------------------------------------
+# FIELD DETECTION
+# ---------------------------------------------------------
+
+def detect_requested_fields(
+    question: str
+) -> List[str]:
+
+    normalized_question = normalize_text(
+        question
+    )
+
+    found = []
+
+    for canonical, aliases in FIELD_ALIASES.items():
+
+        best_match = None
+
+        for alias in aliases:
+
+            alias_normalized = normalize_text(
+                alias
+            )
+
+            if not alias_normalized:
+                continue
+
+            pattern = (
+                rf"\b{re.escape(alias_normalized)}\b"
+            )
+
+            if re.search(
+                pattern,
+                normalized_question
+            ):
+
+                if (
+                    best_match is None
+                    or len(alias_normalized)
+                    > len(best_match)
+                ):
+
+                    best_match = alias_normalized
+
+        if best_match:
+
+            found.append(
+                (
+                    canonical,
+                    best_match
+                )
+            )
+
+    found.sort(
+        key=lambda item: len(item[1]),
+        reverse=True
+    )
+
+    return [
+        item[0]
+        for item in found
+    ]
+
+
+# ---------------------------------------------------------
+# FIELD PAIR EXTRACTION
+# ---------------------------------------------------------
+
+def extract_field_pairs(
+    text: str
+) -> List[Dict[str, str]]:
+
+    if not text:
+        return []
+
+    aliases = []
+
+    for field_aliases in FIELD_ALIASES.values():
+
+        aliases.extend(
+            field_aliases
+        )
+
+    aliases = sorted(
+        set(
+            normalize_text(alias)
+            for alias in aliases
+            if alias
+        ),
+        key=len,
+        reverse=True
+    )
+
+    if not aliases:
+        return []
+
+    escaped_aliases = []
+
+    for alias in aliases:
+
+        escaped = re.escape(alias)
+
+        escaped = escaped.replace(
+            r"\ ",
+            r"\s+"
+        )
+
+        escaped_aliases.append(
+            escaped
+        )
+
+    label_pattern = "|".join(
+        escaped_aliases
+    )
+
+    pattern = re.compile(
+        rf"""
+        (?<![A-Za-z0-9])
+        (?P<label>{label_pattern})
+        [\s.()/_-]*
+        [:=]
+        \s*
+        (?P<value>.*?)
+        (?=
+            \s+
+            (?:
+                {label_pattern}
+            )
+            [\s.()/_-]*
+            [:=]
+            |
+            $
+        )
+        """,
+        re.IGNORECASE | re.VERBOSE
+    )
+
+    pairs = []
+
+    # Keep lines where possible
+    lines = re.split(
+        r"[\r\n]+",
+        text
+    )
+
+    # Also scan complete flattened text
+    # because PDF extraction often removes line breaks.
+    scan_texts = list(lines)
+
+    flattened = clean_text(text)
+
+    if flattened:
+        scan_texts.append(
+            flattened
+        )
+
+    for scan_text in scan_texts:
+
+        if not scan_text.strip():
+            continue
+
+        for match in pattern.finditer(
+            scan_text
+        ):
+
+            label = clean_text(
+                match.group("label")
+            )
+
+            value = clean_text(
+                match.group("value")
+            )
+
+            if not label or not value:
+                continue
+
+            value = re.sub(
+                r"^[\s:=-]+",
+                "",
+                value
+            )
+
+            value = re.sub(
+                r"[\s|]+$",
+                "",
+                value
+            )
+
+            if value:
+
+                pairs.append(
+                    {
+                        "label": label,
+                        "value": value,
+                    }
+                )
+
+    # Remove duplicates
+    unique = []
+
+    seen = set()
+
+    for pair in pairs:
+
+        key = (
+            normalize_label(pair["label"]),
+            normalize_text(pair["value"])
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        unique.append(pair)
+
+    return unique
+
+
+# ---------------------------------------------------------
+# FIELD MATCHING
+# ---------------------------------------------------------
+
+def find_field_values(
+    question: str,
+    documents: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+
+    requested_fields = detect_requested_fields(
+        question
+    )
+
+    if not requested_fields:
+        return []
+
+    results = []
+
+    for document in documents:
+
+        source_text = (
+            document.get("raw_text")
+            or document.get("text")
+            or ""
+        )
+
+        pairs = extract_field_pairs(
+            source_text
+        )
+
+        if not pairs:
+            continue
+
+        for field in requested_fields:
+
+            aliases = {
+                normalize_label(alias)
+                for alias in FIELD_ALIASES[field]
+            }
+
+            canonical_normalized = normalize_label(
+                field
+            )
+
+            matching_pairs = []
+
+            for pair in pairs:
+
+                label_normalized = normalize_label(
+                    pair["label"]
+                )
+
+                if label_normalized in aliases:
+
+                    matching_pairs.append(
+                        pair
+                    )
+
+            if not matching_pairs:
+                continue
+
+            # Prefer exact canonical label
+            matching_pairs.sort(
+                key=lambda pair: (
+                    0
+                    if normalize_label(
+                        pair["label"]
+                    ) == canonical_normalized
+                    else 1,
+                    -len(
+                        normalize_label(
+                            pair["label"]
+                        )
+                    ),
+                )
+            )
+
+            best_pair = matching_pairs[0]
+
+            results.append(
+                {
+                    "id": document["id"],
+                    "filename": document["filename"],
+                    "extension": document["extension"],
+                    "text": best_pair["value"],
+                    "field": field,
+                    "label": best_pair["label"],
+                    "score": 1.0,
+                    "chunk_index": -1,
+                }
+            )
+
+    # Remove duplicates
+    unique_results = []
+
+    seen = set()
+
+    for result in results:
+
+        key = (
+            result["filename"],
+            result["field"],
+            normalize_text(
+                result["text"]
+            )
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        unique_results.append(
+            result
+        )
+
+    return unique_results[
+        :MAX_FIELD_RESULTS
+    ]
+
+
+# ---------------------------------------------------------
 # SEARCH SCORING
-# ============================================================
+# ---------------------------------------------------------
 
 def calculate_search_score(
     query: str,
-    text: str,
+    text: str
 ) -> float:
 
     query_normalized = normalize_text(
@@ -747,176 +1170,62 @@ def calculate_search_score(
     if not text_normalized:
         return 0.0
 
-    query_words = tokenize(query)
+    query_tokens = set(
+        tokenize(query)
+    )
 
-    text_words = tokenize(text)
+    text_tokens = set(
+        tokenize(text)
+    )
 
-    if not query_words:
+    if not query_tokens:
         return 0.0
 
-    if not text_words:
-        return 0.0
-
-    # --------------------------------------------------------
-    # 1. Exact full query
-    # --------------------------------------------------------
-
-    exact_score = 0.0
-
-    if query_normalized in text_normalized:
-        exact_score = 1.0
-
-    # --------------------------------------------------------
-    # 2. Important word matching
-    # --------------------------------------------------------
-
-    word_scores = []
-
-    for query_word in query_words:
-
-        score = fuzzy_word_match(
-            query_word,
-            text_words,
-        )
-
-        word_scores.append(score)
-
-    average_word_score = (
-        sum(word_scores)
-        / len(word_scores)
+    overlap = (
+        len(query_tokens & text_tokens)
+        / len(query_tokens)
     )
 
-    # --------------------------------------------------------
-    # 3. Coverage
-    # --------------------------------------------------------
-
-    matched_words = sum(
-        1
-        for score in word_scores
-        if score >= 0.60
+    exact_match = (
+        1.0
+        if query_normalized
+        in text_normalized
+        else 0.0
     )
 
-    coverage_score = (
-        matched_words
-        / len(query_words)
-    )
+    phrase_match = 0.0
 
-    # --------------------------------------------------------
-    # 4. Strong exact matches
-    # --------------------------------------------------------
+    if len(query_tokens) >= 2:
 
-    exact_word_count = 0
+        query_words = query_normalized.split()
 
-    text_word_set = set(text_words)
+        if all(
+            word in text_normalized
+            for word in query_words
+        ):
 
-    for word in query_words:
-
-        if word in text_word_set:
-            exact_word_count += 1
-
-    exact_word_score = (
-        exact_word_count
-        / len(query_words)
-    )
-
-    # --------------------------------------------------------
-    # 5. Phrase matching
-    # --------------------------------------------------------
-
-    phrase_score = 0.0
-
-    if len(query_words) >= 2:
-
-        phrase = " ".join(
-            query_words
-        )
-
-        if phrase in text_normalized:
-
-            phrase_score = 1.0
-
-        else:
-
-            # Check smaller consecutive phrases
-            phrase_parts = []
-
-            for i in range(
-                len(query_words) - 1
-            ):
-
-                phrase_parts.append(
-                    " ".join(
-                        query_words[
-                            i:i + 2
-                        ]
-                    )
-                )
-
-            matched_phrases = sum(
-                1
-                for phrase_part in phrase_parts
-                if phrase_part in text_normalized
-            )
-
-            if phrase_parts:
-
-                phrase_score = (
-                    matched_phrases
-                    / len(phrase_parts)
-                )
-
-    # --------------------------------------------------------
-    # 6. Query term presence
-    # --------------------------------------------------------
-
-    presence_score = 0.0
-
-    for word in query_words:
-
-        if word in text_normalized:
-            presence_score += 1
-
-    presence_score /= len(
-        query_words
-    )
-
-    # --------------------------------------------------------
-    # FINAL SCORE
-    # --------------------------------------------------------
+            phrase_match = 1.0
 
     score = (
-        average_word_score * 0.35
-        + coverage_score * 0.30
-        + exact_word_score * 0.15
-        + phrase_score * 0.10
-        + exact_score * 0.10
+        overlap * 0.55
+        + exact_match * 0.30
+        + phrase_match * 0.15
     )
 
-    # Boost if multiple query terms are
-    # actually present.
-    if presence_score >= 0.5:
-        score += 0.08
-
-    if presence_score >= 0.8:
-        score += 0.08
-
-    return round(
-        min(
-            max(score, 0.0),
-            1.0,
-        ),
-        4,
+    return min(
+        score,
+        1.0
     )
 
 
-# ============================================================
-# SEARCH SNIPPET
-# ============================================================
+# ---------------------------------------------------------
+# SNIPPET
+# ---------------------------------------------------------
 
 def create_search_snippet(
     text: str,
     query: str,
-    max_length: int = 700,
+    max_length: int = 450
 ) -> str:
 
     text = clean_text(text)
@@ -924,44 +1233,49 @@ def create_search_snippet(
     if len(text) <= max_length:
         return text
 
-    query_words = tokenize(query)
+    normalized_text = text.lower()
+    normalized_query = query.lower()
 
-    lower_text = text.lower()
+    position = normalized_text.find(
+        normalized_query
+    )
 
-    positions = []
+    if position == -1:
 
-    for word in query_words:
-
-        position = lower_text.find(
-            word.lower()
+        query_tokens = tokenize(
+            query
         )
 
-        if position >= 0:
-            positions.append(position)
+        position = -1
 
-    if positions:
+        for token in query_tokens:
 
-        best_position = min(
-            positions
-        )
+            position = normalized_text.find(
+                token.lower()
+            )
 
-        start = max(
-            0,
-            best_position - 180,
-        )
+            if position != -1:
+                break
 
-    else:
+    if position == -1:
 
-        start = 0
+        return text[
+            :max_length
+        ]
+
+    start = max(
+        0,
+        position - 150
+    )
 
     end = min(
-        start + max_length,
         len(text),
+        start + max_length
     )
 
     snippet = text[
         start:end
-    ].strip()
+    ]
 
     if start > 0:
         snippet = "..." + snippet
@@ -972,15 +1286,14 @@ def create_search_snippet(
     return snippet
 
 
-# ============================================================
-# SEARCH DOCUMENTS
-# ============================================================
+# ---------------------------------------------------------
+# NORMAL SEARCH
+# ---------------------------------------------------------
 
 def search_documents(
     query: str,
+    documents: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-
-    documents = load_documents()
 
     query = query.strip()
 
@@ -991,304 +1304,142 @@ def search_documents(
 
     for document in documents:
 
-        filename = document.get(
-            "filename",
-            "Document",
-        )
-
-        extension = document.get(
-            "extension",
-            "",
-        )
-
         chunks = document.get(
             "chunks_data",
-            [],
+            []
         )
 
-        # ----------------------------------------------------
-        # OLD DATA SUPPORT
-        # ----------------------------------------------------
-
+        # Support older document structure
         if not chunks:
 
-            stored_text = document.get(
+            text = document.get(
                 "text",
-                "",
+                ""
             )
 
-            if stored_text:
+            chunks = [
+                {
+                    "text": text,
+                    "chunk_index": 0
+                }
+            ]
 
-                chunks = [
-                    {
-                        "index": index,
-                        "text": chunk,
-                    }
-                    for index, chunk in enumerate(
-                        create_chunks(
-                            stored_text
-                        )
-                    )
-                ]
+        for chunk in chunks:
 
-        # ----------------------------------------------------
-        # SCORE EVERY CHUNK
-        # ----------------------------------------------------
+            chunk_text = chunk.get(
+                "text",
+                ""
+            )
 
-        document_results = []
-
-        for chunk_index, chunk in enumerate(
-            chunks
-        ):
-
-            if isinstance(
-                chunk,
-                dict,
-            ):
-
-                chunk_text = chunk.get(
-                    "text",
-                    "",
-                )
-
-                actual_index = chunk.get(
-                    "index",
-                    chunk_index,
-                )
-
-            else:
-
-                chunk_text = str(chunk)
-                actual_index = chunk_index
-
-            if not chunk_text.strip():
+            if not chunk_text:
                 continue
 
             score = calculate_search_score(
                 query,
-                chunk_text,
+                chunk_text
             )
 
             if score < MIN_SEARCH_SCORE:
                 continue
 
-            document_results.append(
+            results.append(
                 {
-                    "id": document.get(
-                        "id"
-                    ),
-                    "filename": filename,
-                    "extension": extension,
+                    "id": document["id"],
+                    "filename": document["filename"],
+                    "extension": document["extension"],
                     "text": create_search_snippet(
                         chunk_text,
-                        query,
+                        query
                     ),
-                    "score": score,
-                    "chunk_index": actual_index,
+                    "score": round(
+                        score,
+                        4
+                    ),
+                    "chunk_index": chunk.get(
+                        "chunk_index",
+                        0
+                    ),
                 }
             )
 
-        # Keep strongest chunks from each document
-        document_results.sort(
-            key=lambda x: x["score"],
-            reverse=True,
-        )
-
-        results.extend(
-            document_results[
-                :MAX_RESULTS_PER_DOCUMENT
-            ]
-        )
-
-    # ========================================================
-    # SORT GLOBAL RESULTS
-    # ========================================================
-
     results.sort(
-        key=lambda x: x.get(
-            "score",
-            0,
-        ),
-        reverse=True,
+        key=lambda item: item["score"],
+        reverse=True
     )
 
-    # ========================================================
-    # DUPLICATE REMOVAL
-    # ========================================================
-
-    unique_results = []
+    # Remove duplicates
+    final_results = []
 
     seen = set()
 
+    file_counts = {}
+
     for result in results:
 
+        normalized_snippet = normalize_text(
+            result["text"]
+        )[:300]
+
         key = (
-            result.get(
-                "filename",
-                "",
-            ),
-            normalize_text(
-                result.get(
-                    "text",
-                    "",
-                )
-            )[:350],
+            result["filename"],
+            normalized_snippet
         )
 
         if key in seen:
             continue
 
+        count = file_counts.get(
+            result["filename"],
+            0
+        )
+
+        if count >= 3:
+            continue
+
         seen.add(key)
 
-        unique_results.append(
+        file_counts[
+            result["filename"]
+        ] = count + 1
+
+        final_results.append(
             result
         )
 
-    # ========================================================
-    # FINAL LIMIT
-    # ========================================================
+        if len(final_results) >= MAX_SEARCH_RESULTS:
+            break
 
-    return unique_results[
-        :MAX_SEARCH_RESULTS
-    ]
+    return final_results
 
 
-# ============================================================
-# GEMINI CLIENT
-# ============================================================
+# ---------------------------------------------------------
+# GEMINI ANSWER
+# ---------------------------------------------------------
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY",
-    "",
-)
-
-gemini_client = None
-
-if genai and GEMINI_API_KEY:
-
-    try:
-
-        gemini_client = genai.Client(
-            api_key=GEMINI_API_KEY
-        )
-
-        print(
-            "✓ Gemini client initialized"
-        )
-
-    except Exception as exc:
-
-        print(
-            "Gemini initialization failed:",
-            exc,
-        )
-
-
-# ============================================================
-# BUILD AI CONTEXT
-# ============================================================
-
-def build_context(
+def generate_ai_answer(
     question: str,
-) -> List[Dict[str, Any]]:
+    search_results: List[Dict[str, Any]]
+) -> Optional[str]:
 
-    results = search_documents(
-        question
-    )
+    if not gemini_client:
+        return None
 
-    return results
-
-
-# ============================================================
-# FALLBACK ANSWER
-# ============================================================
-
-def fallback_answer(
-    question: str,
-    results: List[Dict[str, Any]],
-) -> str:
-
-    if not results:
-
-        return (
-            "I couldn't find a sufficiently relevant "
-            "section for this question in the uploaded documents."
-        )
-
-    best_results = results[:3]
-
-    parts = []
-
-    for result in best_results:
-
-        filename = result.get(
-            "filename",
-            "document",
-        )
-
-        text = result.get(
-            "text",
-            "",
-        )
-
-        parts.append(
-            f"From {filename}:\n{text}"
-        )
-
-    return "\n\n".join(parts)
-
-
-# ============================================================
-# AI ANSWER
-# ============================================================
-
-def generate_answer(
-    question: str,
-    results: List[Dict[str, Any]],
-) -> str:
-
-    if not results:
-
-        return (
-            "I couldn't find a sufficiently relevant "
-            "section for this question in the uploaded documents."
-        )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # Only send top relevant chunks.
-    # --------------------------------------------------------
+    if not search_results:
+        return None
 
     context_parts = []
 
     for index, result in enumerate(
-        results[:6],
-        start=1,
+        search_results[:5],
+        start=1
     ):
-
-        filename = result.get(
-            "filename",
-            "Document",
-        )
-
-        text = result.get(
-            "text",
-            "",
-        )
-
-        score = result.get(
-            "score",
-            0,
-        )
 
         context_parts.append(
             f"""
 SOURCE {index}
-FILE: {filename}
-RELEVANCE SCORE: {score}
-
-CONTENT:
-{text}
+File: {result["filename"]}
+Relevant content:
+{result["text"]}
 """
         )
 
@@ -1296,93 +1447,102 @@ CONTENT:
         context_parts
     )
 
-    # --------------------------------------------------------
-    # GEMINI
-    # --------------------------------------------------------
-
-    if gemini_client:
-
-        prompt = f"""
-You are DocuMind AI.
-
-You answer questions using uploaded documents.
-
-IMPORTANT RULES:
-
-1. Answer ONLY from the supplied document context.
-2. Do NOT use outside knowledge.
-3. Do NOT dump all document content.
-4. Answer ONLY the part relevant to the user's question.
-5. If the user asks for a specific item, give that specific item.
-6. If the answer appears in multiple sources, combine only the relevant information.
-7. Do not mention relevance scores.
-8. Do not say "I couldn't find" if the supplied context contains information that can reasonably answer the question.
-9. If the context genuinely does not contain the answer, say:
-   "That information is not available in the uploaded documents."
-10. Keep the answer concise and direct.
-11. If the document contains a list, table, steps, definition, name, number, date, or specific value requested by the user, return that exact relevant information.
-12. Never summarize the entire document when the user asks about one specific topic.
+    prompt = f"""
+You are DocuMind AI, a document question-answering assistant.
 
 USER QUESTION:
 {question}
 
-RELEVANT DOCUMENT CONTEXT:
+RELEVANT DOCUMENT INFORMATION:
 {context}
 
-Now answer the user's question directly.
+STRICT RULES:
+
+1. Answer ONLY the user's question.
+2. Use ONLY the information provided in the relevant document information.
+3. Do NOT use outside knowledge.
+4. Do NOT reproduce the entire document.
+5. Do NOT dump the retrieved context.
+6. Do NOT mention irrelevant fields.
+7. If the question asks for a specific value, return only that value.
+8. If the question asks for an explanation, give a short and relevant explanation.
+9. If the question asks for a summary, provide a concise summary.
+10. If the answer is not available in the provided information, say:
+   "I couldn't find that information in the uploaded documents."
+11. Keep the answer concise and directly relevant.
+12. Never invent or guess information.
+
+ANSWER:
 """
 
-        try:
+    try:
 
-            response = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-            )
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
 
-            answer = getattr(
-                response,
-                "text",
-                None,
-            )
+        answer = getattr(
+            response,
+            "text",
+            None
+        )
+
+        if answer:
+
+            answer = answer.strip()
 
             if answer:
+                return answer
 
-                return answer.strip()
+    except Exception as exc:
 
-        except Exception as exc:
+        print(
+            "Gemini error:",
+            exc
+        )
 
-            print(
-                "Gemini error:",
-                exc,
-            )
-
-    # --------------------------------------------------------
-    # FALLBACK
-    # --------------------------------------------------------
-
-    return fallback_answer(
-        question,
-        results,
-    )
+    return None
 
 
-# ============================================================
+# ---------------------------------------------------------
+# FALLBACK ANSWER
+# ---------------------------------------------------------
+
+def fallback_answer(
+    question: str,
+    results: List[Dict[str, Any]]
+) -> str:
+
+    if not results:
+
+        return (
+            "I couldn't find that information "
+            "in the uploaded documents."
+        )
+
+    best = results[0]
+
+    return best["text"]
+
+
+# ---------------------------------------------------------
 # ROOT
-# ============================================================
+# ---------------------------------------------------------
 
 @app.get("/")
 def root():
 
     return {
-        "name": "DocuMind AI",
-        "status": "online",
+        "app": "DocuMind AI",
         "version": "3.0.0",
+        "status": "running",
     }
 
 
-# ============================================================
+# ---------------------------------------------------------
 # STATUS
-# ============================================================
+# ---------------------------------------------------------
 
 @app.get("/status")
 def status():
@@ -1391,18 +1551,19 @@ def status():
 
     return {
         "ready": True,
-        "indexed_files": len(
-            documents
-        ),
-        "supported_extensions": list(
+        "indexed_files": len(documents),
+        "supported_extensions": sorted(
             SUPPORTED_EXTENSIONS
+        ),
+        "gemini_enabled": (
+            gemini_client is not None
         ),
     }
 
 
-# ============================================================
-# GET DOCUMENTS
-# ============================================================
+# ---------------------------------------------------------
+# DOCUMENT LIST
+# ---------------------------------------------------------
 
 @app.get("/documents")
 def get_documents():
@@ -1413,29 +1574,23 @@ def get_documents():
 
     for document in documents:
 
-        chunks = document.get(
-            "chunks_data",
-            [],
-        )
-
         output.append(
             {
-                "id": document.get(
-                    "id"
-                ),
-                "filename": document.get(
-                    "filename"
-                ),
-                "extension": document.get(
-                    "extension"
-                ),
+                "id": document["id"],
+                "filename": document["filename"],
+                "extension": document["extension"],
                 "size": document.get(
                     "size",
-                    0,
+                    0
                 ),
-                "chunks": len(chunks),
                 "created_at": document.get(
                     "created_at"
+                ),
+                "chunks": len(
+                    document.get(
+                        "chunks_data",
+                        []
+                    )
                 ),
             }
         )
@@ -1445,11 +1600,12 @@ def get_documents():
     }
 
 
-# ============================================================
+# ---------------------------------------------------------
 # UPLOAD
-# ============================================================
+# ---------------------------------------------------------
 
 @app.post("/upload")
+@app.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...)
 ):
@@ -1458,7 +1614,7 @@ async def upload_document(
 
         raise HTTPException(
             status_code=400,
-            detail="No filename provided.",
+            detail="Filename is required."
         )
 
     original_filename = Path(
@@ -1474,273 +1630,290 @@ async def upload_document(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Unsupported format. "
-                "Use PDF, DOCX, PPTX, XLSX, TXT or ZIP."
+                "Unsupported file type. "
+                "Supported: "
+                + ", ".join(
+                    sorted(
+                        SUPPORTED_EXTENSIONS
+                    )
+                )
             ),
         )
 
-    # ========================================================
-    # READ FILE
-    # ========================================================
-
     content = await file.read()
+
+    if not content:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty."
+        )
 
     if len(content) > MAX_FILE_SIZE:
 
         raise HTTPException(
-            status_code=400,
-            detail="Maximum file size is 20 MB.",
+            status_code=413,
+            detail="File size exceeds 20 MB."
         )
 
-    # ========================================================
-    # CREATE ID
-    # ========================================================
+    file_hash = hashlib.sha256(
+        content
+    ).hexdigest()
 
-    document_id = str(
-        uuid.uuid4()
+    documents = load_documents()
+
+    # Prevent exact duplicate upload
+    for existing in documents:
+
+        if existing.get(
+            "sha256"
+        ) == file_hash:
+
+            return {
+                "success": True,
+                "already_indexed": True,
+                "document": {
+                    "id": existing["id"],
+                    "filename": existing["filename"],
+                    "extension": existing["extension"],
+                    "chunks": len(
+                        existing.get(
+                            "chunks_data",
+                            []
+                        )
+                    ),
+                },
+            }
+
+    document_id = uuid.uuid4().hex
+
+    stored_filename = (
+        f"{document_id}{extension}"
     )
 
-    file_path = (
-        UPLOAD_DIR
-        / f"{document_id}{extension}"
+    stored_path = (
+        UPLOAD_DIR / stored_filename
     )
-
-    # ========================================================
-    # SAVE
-    # ========================================================
 
     try:
 
         with open(
-            file_path,
-            "wb",
-        ) as buffer:
+            stored_path,
+            "wb"
+        ) as f:
 
-            buffer.write(content)
+            f.write(content)
 
-    except Exception as exc:
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not save file: {exc}",
+        extracted_text = extract_document(
+            stored_path
         )
 
-    # ========================================================
-    # EXTRACT
-    # ========================================================
+        if not extracted_text.strip():
 
-    try:
+            stored_path.unlink(
+                missing_ok=True
+            )
 
-        extracted_text = extract_document_text(
-            file_path,
-            extension,
-        )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "No readable text "
+                    "could be extracted "
+                    "from this document."
+                ),
+            )
 
-        extracted_text = clean_text(
+        chunks = create_chunks(
             extracted_text
         )
 
-    except Exception as exc:
+        chunks_data = []
 
-        try:
-            file_path.unlink()
-        except Exception:
-            pass
+        for index, chunk in enumerate(
+            chunks
+        ):
 
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not read document: {exc}",
-        )
-
-    if not extracted_text:
-
-        try:
-            file_path.unlink()
-        except Exception:
-            pass
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "No readable text was found in this document."
-            ),
-        )
-
-    # ========================================================
-    # CREATE SMART CHUNKS
-    # ========================================================
-
-    chunks = create_chunks(
-        extracted_text
-    )
-
-    if not chunks:
-
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Could not create searchable chunks."
-            ),
-        )
-
-    # ========================================================
-    # CREATE DOCUMENT RECORD
-    # ========================================================
-
-    document = {
-        "id": document_id,
-        "filename": original_filename,
-        "extension": extension,
-        "size": len(content),
-        "created_at": datetime.now().isoformat(),
-
-        "text": extracted_text,
-
-        "chunks_data": [
-            {
-                "index": index,
-                "text": chunk,
-            }
-            for index, chunk in enumerate(
-                chunks
+            chunks_data.append(
+                {
+                    "chunk_index": index,
+                    "text": chunk,
+                }
             )
-        ],
-    }
 
-    # ========================================================
-    # SAVE
-    # ========================================================
-
-    documents = load_documents()
-
-    documents.append(
-        document
-    )
-
-    save_documents(
-        documents
-    )
-
-    return {
-        "success": True,
-        "message": (
-            "Document uploaded and indexed successfully."
-        ),
-        "document": {
+        document = {
             "id": document_id,
             "filename": original_filename,
             "extension": extension,
+            "stored_filename": stored_filename,
             "size": len(content),
-            "chunks": len(chunks),
-        },
-    }
+            "sha256": file_hash,
+            "created_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "text": clean_text(
+                extracted_text
+            ),
+            "raw_text": extracted_text,
+            "chunks_data": chunks_data,
+        }
+
+        documents.append(
+            document
+        )
+
+        save_documents(
+            documents
+        )
+
+        return {
+            "success": True,
+            "already_indexed": False,
+            "document": {
+                "id": document_id,
+                "filename": original_filename,
+                "extension": extension,
+                "chunks": len(
+                    chunks_data
+                ),
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        stored_path.unlink(
+            missing_ok=True
+        )
+
+        print(
+            "Upload error:",
+            exc
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to process "
+                f"document: {str(exc)}"
+            ),
+        )
 
 
-# ============================================================
+# ---------------------------------------------------------
 # DELETE DOCUMENT
-# ============================================================
+# ---------------------------------------------------------
 
-@app.delete(
-    "/documents/{document_id}"
-)
+@app.delete("/documents/{document_id}")
 def delete_document(
-    document_id: str,
+    document_id: str
 ):
 
     documents = load_documents()
 
-    document = next(
-        (
-            doc
-            for doc in documents
-            if doc.get("id") == document_id
-        ),
-        None,
-    )
+    target = None
 
-    if document is None:
+    for document in documents:
+
+        if document["id"] == document_id:
+
+            target = document
+            break
+
+    if target is None:
 
         raise HTTPException(
             status_code=404,
-            detail="Document not found.",
+            detail="Document not found."
         )
 
-    extension = document.get(
-        "extension",
-        "",
-    )
-
-    file_path = (
-        UPLOAD_DIR
-        / f"{document_id}{extension}"
-    )
-
-    if file_path.exists():
-
-        try:
-
-            file_path.unlink()
-
-        except Exception as exc:
-
-            print(
-                "Could not delete physical file:",
-                exc,
-            )
-
     documents = [
-        doc
-        for doc in documents
-        if doc.get("id") != document_id
+        document
+        for document in documents
+        if document["id"] != document_id
     ]
 
     save_documents(
         documents
     )
 
+    stored_filename = target.get(
+        "stored_filename"
+    )
+
+    if stored_filename:
+
+        stored_path = (
+            UPLOAD_DIR / stored_filename
+        )
+
+        stored_path.unlink(
+            missing_ok=True
+        )
+
     return {
         "success": True,
-        "message": "Document deleted successfully.",
+        "message": (
+            "Document deleted successfully."
+        ),
     }
 
 
-# ============================================================
+# ---------------------------------------------------------
 # SEARCH
-# ============================================================
+# ---------------------------------------------------------
 
 @app.post("/search")
-def search_documents_endpoint(
-    request: SearchRequest,
-):
+@app.post("/documents/search")
+def search(request: SearchRequest):
 
     query = request.query.strip()
 
     if not query:
 
         return {
-            "query": "",
+            "query": query,
             "results": [],
-            "count": 0,
+        }
+
+    documents = load_documents()
+
+    # IMPORTANT:
+    # Exact field extraction happens FIRST.
+    field_results = find_field_values(
+        query,
+        documents
+    )
+
+    if field_results:
+
+        return {
+            "query": query,
+            "results": field_results,
+            "mode": "exact_field",
         }
 
     results = search_documents(
-        query
+        query,
+        documents
     )
 
     return {
         "query": query,
         "results": results,
-        "count": len(results),
+        "mode": "semantic_search",
     }
 
 
-# ============================================================
-# ASK AI
-# ============================================================
+# ---------------------------------------------------------
+# ASK DOCUMIND AI
+# ---------------------------------------------------------
 
 @app.post("/ask")
-def ask_document(
-    request: AskRequest,
+@app.post("/documents/ask")
+def ask_documind(
+    request: AskRequest
 ):
 
     question = request.question.strip()
@@ -1749,72 +1922,164 @@ def ask_document(
 
         raise HTTPException(
             status_code=400,
-            detail="Question cannot be empty.",
+            detail="Question cannot be empty."
         )
 
     documents = load_documents()
 
-    if not documents:
+    # =====================================================
+    # STEP 1
+    # EXACT FIELD EXTRACTION
+    # =====================================================
 
-        raise HTTPException(
-            status_code=400,
-            detail="Please upload a document first.",
-        )
-
-    # ========================================================
-    # SEARCH
-    # ========================================================
-
-    relevant_results = build_context(
-        question
-    )
-
-    # ========================================================
-    # GENERATE ANSWER
-    # ========================================================
-
-    answer = generate_answer(
+    field_results = find_field_values(
         question,
-        relevant_results,
+        documents
     )
 
-    # ========================================================
-    # SOURCES
-    # ========================================================
+    if field_results:
 
-    sources = []
+        unique_fields = []
 
-    seen_sources = set()
+        for result in field_results:
 
-    for result in relevant_results:
+            if result["field"] not in unique_fields:
 
-        filename = result.get(
-            "filename",
-            "Document",
+                unique_fields.append(
+                    result["field"]
+                )
+
+        # -------------------------------------------------
+        # SINGLE FIELD + SINGLE RESULT
+        # RETURN ONLY THE VALUE
+        # -------------------------------------------------
+
+        if (
+            len(unique_fields) == 1
+            and len(field_results) == 1
+        ):
+
+            answer = field_results[0][
+                "text"
+            ]
+
+        # -------------------------------------------------
+        # MULTIPLE FIELDS
+        # -------------------------------------------------
+
+        else:
+
+            answer_parts = []
+
+            used = set()
+
+            for result in field_results:
+
+                key = (
+                    result["field"],
+                    result["text"]
+                )
+
+                if key in used:
+                    continue
+
+                used.add(key)
+
+                readable_field = (
+                    result["field"]
+                    .title()
+                )
+
+                answer_parts.append(
+                    f"{readable_field}: "
+                    f"{result['text']}"
+                )
+
+            answer = "\n".join(
+                answer_parts
+            )
+
+        sources = list(
+            dict.fromkeys(
+                result["filename"]
+                for result in field_results
+            )
         )
 
-        if filename in seen_sources:
-            continue
+        return {
+            "question": question,
+            "answer": answer,
+            "sources": sources,
+            "results": field_results,
+            "mode": "exact_field",
+        }
 
-        seen_sources.add(
-            filename
+    # =====================================================
+    # STEP 2
+    # NORMAL DOCUMENT RETRIEVAL
+    # =====================================================
+
+    search_results = search_documents(
+        question,
+        documents
+    )
+
+    if not search_results:
+
+        return {
+            "question": question,
+            "answer": (
+                "I couldn't find that information "
+                "in the uploaded documents."
+            ),
+            "sources": [],
+            "results": [],
+            "mode": "no_match",
+        }
+
+    # =====================================================
+    # STEP 3
+    # GEMINI ANSWERING
+    # =====================================================
+
+    ai_answer = generate_ai_answer(
+        question,
+        search_results
+    )
+
+    if ai_answer:
+
+        answer = ai_answer
+        mode = "ai_rag"
+
+    else:
+
+        answer = fallback_answer(
+            question,
+            search_results
         )
 
-        sources.append(
-            filename
+        mode = "retrieval_fallback"
+
+    sources = list(
+        dict.fromkeys(
+            result["filename"]
+            for result in search_results
         )
+    )
 
     return {
         "question": question,
         "answer": answer,
         "sources": sources,
-        "results": relevant_results,
+        "results": search_results,
+        "mode": mode,
     }
 
 
-# ============================================================
+# ---------------------------------------------------------
 # RUN
-# ============================================================
+# ---------------------------------------------------------
 
 if __name__ == "__main__":
 
