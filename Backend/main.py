@@ -1415,52 +1415,100 @@ def generate_ai_answer(
     if not search_results:
         return None
 
+    # ---------------------------------------------------------
+    # BUILD ONLY THE MOST RELEVANT CONTEXT
+    # ---------------------------------------------------------
+
     context_parts = []
 
+    # Use only top 3 most relevant results
     for index, result in enumerate(
-        search_results[:5],
+        search_results[:3],
         start=1
     ):
-
         context_parts.append(
             f"""
 SOURCE {index}
 File: {result["filename"]}
-Relevant content:
+Content:
 {result["text"]}
 """
         )
 
-    context = "\n".join(
-        context_parts
-    )
+    context = "\n".join(context_parts)
+
+    # ---------------------------------------------------------
+    # STRICT RELEVANCE PROMPT
+    # ---------------------------------------------------------
 
     prompt = f"""
-You are DocuMind AI, a document question-answering assistant.
+You are DocuMind AI.
+
+Your job is to answer the user's question using ONLY the
+provided document content.
 
 USER QUESTION:
 {question}
 
-RELEVANT DOCUMENT INFORMATION:
+DOCUMENT CONTENT:
 {context}
 
-STRICT RULES:
+IMPORTANT ANSWERING RULES:
 
-1. Answer ONLY the user's question.
-2. Use ONLY the information provided in the relevant document information.
-3. Do NOT use outside knowledge.
-4. Do NOT reproduce the entire document.
-5. Do NOT dump the retrieved context.
-6. Do NOT mention irrelevant fields.
-7. If the question asks for a specific value, return only that value.
-8. If the question asks for an explanation, give a short and relevant explanation.
-9. If the question asks for a summary, provide a concise summary.
-10. If the answer is not available in the provided information, say:
-   "I couldn't find that information in the uploaded documents."
-11. Keep the answer concise and directly relevant.
-12. Never invent or guess information.
+1. Answer ONLY what the user asked.
+2. Do NOT dump the document content.
+3. Do NOT repeat unrelated information.
+4. Do NOT list every field from the document.
+5. Do NOT mention information that is not necessary to answer
+   the question.
+6. If the question asks for ONE value, return ONLY that value.
+7. If the question asks about a specific topic, answer ONLY
+   about that topic.
+8. If the question asks "what is my name", return only the name.
+9. If the question asks "what is the amount", return only the
+   amount.
+10. If the question asks about a date, return only the relevant
+    date.
+11. If the question asks about multiple specific things, answer
+    only those things.
+12. If the question asks for an explanation, give a short
+    explanation using only relevant document information.
+13. If the question asks for a summary, summarize the document
+    briefly instead of copying it.
+14. If the information is not present in the provided content,
+    respond exactly:
+    I couldn't find that information in the uploaded documents.
+15. Never guess.
+16. Never invent information.
+17. Never answer with the entire retrieved context.
+18. Keep normal answers short and focused.
+19. Prefer 1-3 sentences unless the user explicitly asks for
+    detailed information.
+20. Do not say "According to the document" unless necessary.
 
-ANSWER:
+EXAMPLES:
+
+Question: What is my name?
+Answer: John
+
+Question: What is the payment amount?
+Answer: ₹5,000
+
+Question: What is the transaction date?
+Answer: 12 March 2026
+
+Question: Tell me about the payment.
+Answer: The payment was ₹5,000 and was made on 12 March 2026.
+
+Question: What is the student's course?
+Answer: Artificial Intelligence and Data Science.
+
+Question: What is the document about?
+Answer: This document is about the student's seminar fee payment.
+
+NOW ANSWER THE USER QUESTION.
+
+Return ONLY the final answer.
 """
 
     try:
@@ -1479,6 +1527,25 @@ ANSWER:
         if answer:
 
             answer = answer.strip()
+
+            # -------------------------------------------------
+            # REMOVE COMMON AI PREFIXES
+            # -------------------------------------------------
+
+            prefixes = [
+                "Answer:",
+                "ANSWER:",
+                "Response:",
+                "RESPONSE:",
+            ]
+
+            for prefix in prefixes:
+
+                if answer.startswith(prefix):
+
+                    answer = answer[
+                        len(prefix):
+                    ].strip()
 
             if answer:
                 return answer
