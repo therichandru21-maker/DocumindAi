@@ -13,9 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-# ---------------------------------------------------------
+# =========================================================
 # OPTIONAL LIBRARIES
-# ---------------------------------------------------------
+# =========================================================
 
 try:
     from pypdf import PdfReader
@@ -43,9 +43,9 @@ except Exception:
     genai = None
 
 
-# ---------------------------------------------------------
+# =========================================================
 # PATHS
-# ---------------------------------------------------------
+# =========================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -57,9 +57,9 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CONFIG
-# ---------------------------------------------------------
+# =========================================================
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
@@ -88,9 +88,9 @@ GEMINI_MODEL = os.getenv(
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # APP
-# ---------------------------------------------------------
+# =========================================================
 
 app = FastAPI(
     title="DocuMind AI",
@@ -99,28 +99,35 @@ app = FastAPI(
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CORS
-# ---------------------------------------------------------
+# IMPORTANT:
+# Only ONE CORSMiddleware configuration is used.
+# =========================================================
 
 app.add_middleware(
     CORSMiddleware,
+
+    # Production Vercel frontend
     allow_origins=[
         "https://documindai-pi.vercel.app",
+
+        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_credentials=False,
+
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # GEMINI
-# ---------------------------------------------------------
+# =========================================================
 
 gemini_client = None
 
@@ -129,15 +136,19 @@ if genai and GEMINI_API_KEY:
         gemini_client = genai.Client(
             api_key=GEMINI_API_KEY
         )
+
         print("Gemini AI initialized")
+
     except Exception as exc:
         print("Gemini initialization failed:", exc)
         gemini_client = None
+else:
+    print("Gemini AI is disabled. GEMINI_API_KEY not found.")
 
 
-# ---------------------------------------------------------
+# =========================================================
 # MODELS
-# ---------------------------------------------------------
+# =========================================================
 
 class AskRequest(BaseModel):
     question: str
@@ -147,11 +158,12 @@ class SearchRequest(BaseModel):
     query: str
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FIELD ALIASES
-# ---------------------------------------------------------
+# =========================================================
 
 FIELD_ALIASES = {
+
     "name": [
         "name",
         "student name",
@@ -160,6 +172,7 @@ FIELD_ALIASES = {
         "employee name",
         "customer name",
     ],
+
     "student id": [
         "student id",
         "studentid",
@@ -172,6 +185,7 @@ FIELD_ALIASES = {
         "reg no",
         "reg number",
     ],
+
     "class": [
         "class",
         "class name",
@@ -179,6 +193,7 @@ FIELD_ALIASES = {
         "section",
         "class/section",
     ],
+
     "course": [
         "course",
         "course name",
@@ -187,6 +202,7 @@ FIELD_ALIASES = {
         "degree",
         "department",
     ],
+
     "term": [
         "term",
         "term name",
@@ -194,6 +210,7 @@ FIELD_ALIASES = {
         "academic term",
         "academic year",
     ],
+
     "transaction id": [
         "tran id",
         "transaction id",
@@ -202,12 +219,14 @@ FIELD_ALIASES = {
         "txn id",
         "txn number",
     ],
+
     "pg transaction id": [
         "pg tran id",
         "pg transaction id",
         "pg txn id",
         "pg transaction number",
     ],
+
     "date": [
         "date",
         "transaction date",
@@ -217,18 +236,21 @@ FIELD_ALIASES = {
         "issued date",
         "issue date",
     ],
+
     "time": [
         "time",
         "transaction time",
         "payment time",
         "issued time",
     ],
+
     "amount": [
         "amount",
         "amount paid",
         "paid amount",
         "payment amount",
     ],
+
     "fees": [
         "fees",
         "fee",
@@ -237,6 +259,7 @@ FIELD_ALIASES = {
         "tuition fees",
         "tuition fee",
     ],
+
     "total": [
         "total",
         "total amount",
@@ -246,12 +269,14 @@ FIELD_ALIASES = {
         "amount payable",
         "net amount",
     ],
+
     "email": [
         "email",
         "email address",
         "mail",
         "mail id",
     ],
+
     "phone": [
         "phone",
         "phone number",
@@ -260,12 +285,14 @@ FIELD_ALIASES = {
         "contact number",
         "contact no",
     ],
+
     "address": [
         "address",
         "home address",
         "permanent address",
         "communication address",
     ],
+
     "status": [
         "status",
         "payment status",
@@ -275,9 +302,9 @@ FIELD_ALIASES = {
 }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # QUESTION NOISE
-# ---------------------------------------------------------
+# =========================================================
 
 QUESTION_NOISE = {
     "what",
@@ -311,9 +338,9 @@ QUESTION_NOISE = {
 }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DOCUMENT STORAGE
-# ---------------------------------------------------------
+# =========================================================
 
 def load_documents() -> List[Dict[str, Any]]:
 
@@ -321,11 +348,13 @@ def load_documents() -> List[Dict[str, Any]]:
         return []
 
     try:
+
         with open(
             DOCUMENTS_FILE,
             "r",
             encoding="utf-8"
         ) as f:
+
             data = json.load(f)
 
         if isinstance(data, list):
@@ -334,10 +363,12 @@ def load_documents() -> List[Dict[str, Any]]:
         return []
 
     except Exception as exc:
+
         print(
             "Could not load documents:",
             exc
         )
+
         return []
 
 
@@ -352,6 +383,7 @@ def save_documents(
         "w",
         encoding="utf-8"
     ) as f:
+
         json.dump(
             documents,
             f,
@@ -362,9 +394,9 @@ def save_documents(
     temp_file.replace(DOCUMENTS_FILE)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TEXT HELPERS
-# ---------------------------------------------------------
+# =========================================================
 
 def clean_text(text: str) -> str:
 
@@ -408,6 +440,7 @@ def normalize_text(text: str) -> str:
 
 
 def normalize_label(text: str) -> str:
+
     return normalize_text(text)
 
 
@@ -424,9 +457,9 @@ def tokenize(text: str) -> List[str]:
     ]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT PDF
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_pdf(path: Path) -> str:
 
@@ -442,12 +475,14 @@ def extract_pdf(path: Path) -> str:
     for page in reader.pages:
 
         try:
+
             text = page.extract_text()
 
             if text:
                 pages.append(text)
 
         except Exception as exc:
+
             print(
                 "PDF page extraction error:",
                 exc
@@ -456,9 +491,9 @@ def extract_pdf(path: Path) -> str:
     return "\n".join(pages)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT DOCX
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_docx(path: Path) -> str:
 
@@ -474,6 +509,7 @@ def extract_docx(path: Path) -> str:
     for paragraph in document.paragraphs:
 
         if paragraph.text.strip():
+
             parts.append(
                 paragraph.text
             )
@@ -485,6 +521,7 @@ def extract_docx(path: Path) -> str:
             values = []
 
             for cell in row.cells:
+
                 values.append(
                     cell.text.strip()
                 )
@@ -496,9 +533,9 @@ def extract_docx(path: Path) -> str:
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT PPTX
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_pptx(path: Path) -> str:
 
@@ -527,6 +564,7 @@ def extract_pptx(path: Path) -> str:
                     slide_parts.append(text)
 
         if slide_parts:
+
             slides.append(
                 "\n".join(slide_parts)
             )
@@ -534,9 +572,9 @@ def extract_pptx(path: Path) -> str:
     return "\n".join(slides)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT XLSX
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_xlsx(path: Path) -> str:
 
@@ -568,11 +606,13 @@ def extract_xlsx(path: Path) -> str:
             for value in row:
 
                 if value is not None:
+
                     values.append(
                         str(value)
                     )
 
             if values:
+
                 parts.append(
                     " | ".join(values)
                 )
@@ -580,9 +620,9 @@ def extract_xlsx(path: Path) -> str:
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT TXT
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_txt(path: Path) -> str:
 
@@ -595,6 +635,7 @@ def extract_txt(path: Path) -> str:
     for encoding in encodings:
 
         try:
+
             return path.read_text(
                 encoding=encoding
             )
@@ -605,9 +646,9 @@ def extract_txt(path: Path) -> str:
     return ""
 
 
-# ---------------------------------------------------------
+# =========================================================
 # EXTRACT ZIP
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_zip(path: Path) -> str:
 
@@ -692,17 +733,15 @@ def extract_zip(path: Path) -> str:
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DOCUMENT EXTRACTION
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_document(
     path: Path
 ) -> str:
 
-    extension = (
-        path.suffix.lower()
-    )
+    extension = path.suffix.lower()
 
     if extension == ".pdf":
         return extract_pdf(path)
@@ -727,9 +766,9 @@ def extract_document(
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CHUNKING
-# ---------------------------------------------------------
+# =========================================================
 
 def create_chunks(
     text: str,
@@ -770,9 +809,9 @@ def create_chunks(
     return chunks
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FIELD DETECTION
-# ---------------------------------------------------------
+# =========================================================
 
 def detect_requested_fields(
     question: str
@@ -811,9 +850,11 @@ def detect_requested_fields(
                     or len(alias_normalized)
                     > len(best_match)
                 ):
+
                     best_match = alias_normalized
 
         if best_match:
+
             found.append(
                 (
                     canonical,
@@ -832,9 +873,9 @@ def detect_requested_fields(
     ]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FIELD PAIR EXTRACTION
-# ---------------------------------------------------------
+# =========================================================
 
 def extract_field_pairs(
     text: str
@@ -846,7 +887,10 @@ def extract_field_pairs(
     aliases = []
 
     for field_aliases in FIELD_ALIASES.values():
-        aliases.extend(field_aliases)
+
+        aliases.extend(
+            field_aliases
+        )
 
     aliases = sorted(
         set(
@@ -884,8 +928,7 @@ def extract_field_pairs(
         rf"""
         (?<![A-Za-z0-9])
         (?P<label>{label_pattern})
-        [\s.()/_-]*
-        [:=]
+        [\s.()/\-_]*[:=]
         \s*
         (?P<value>.*?)
         (?=
@@ -893,8 +936,7 @@ def extract_field_pairs(
             (?:
                 {label_pattern}
             )
-            [\s.()/_-]*
-            [:=]
+            [\s.()/\-_]*[:=]
             |
             $
         )
@@ -951,6 +993,7 @@ def extract_field_pairs(
             )
 
             if value:
+
                 pairs.append(
                     {
                         "label": label,
@@ -959,7 +1002,6 @@ def extract_field_pairs(
                 )
 
     # Remove duplicates
-
     unique = []
 
     seen = set()
@@ -981,9 +1023,9 @@ def extract_field_pairs(
     return unique
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FIELD MATCHING
-# ---------------------------------------------------------
+# =========================================================
 
 def find_field_values(
     question: str,
@@ -1034,7 +1076,10 @@ def find_field_values(
                 )
 
                 if label_normalized in aliases:
-                    matching_pairs.append(pair)
+
+                    matching_pairs.append(
+                        pair
+                    )
 
             if not matching_pairs:
                 continue
@@ -1070,7 +1115,6 @@ def find_field_values(
             )
 
     # Remove duplicates
-
     unique_results = []
 
     seen = set()
@@ -1090,14 +1134,16 @@ def find_field_values(
 
         seen.add(key)
 
-        unique_results.append(result)
+        unique_results.append(
+            result
+        )
 
     return unique_results[:MAX_FIELD_RESULTS]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # SEARCH SCORING
-# ---------------------------------------------------------
+# =========================================================
 
 def calculate_search_score(
     query: str,
@@ -1136,7 +1182,8 @@ def calculate_search_score(
 
     exact_match = (
         1.0
-        if query_normalized in text_normalized
+        if query_normalized
+        in text_normalized
         else 0.0
     )
 
@@ -1150,6 +1197,7 @@ def calculate_search_score(
             word in text_normalized
             for word in query_words
         ):
+
             phrase_match = 1.0
 
     score = (
@@ -1164,9 +1212,9 @@ def calculate_search_score(
     )
 
 
-# ---------------------------------------------------------
-# SNIPPET
-# ---------------------------------------------------------
+# =========================================================
+# SEARCH SNIPPET
+# =========================================================
 
 def create_search_snippet(
     text: str,
@@ -1202,6 +1250,7 @@ def create_search_snippet(
                 break
 
     if position == -1:
+
         return text[:max_length]
 
     start = max(
@@ -1225,9 +1274,9 @@ def create_search_snippet(
     return snippet
 
 
-# ---------------------------------------------------------
+# =========================================================
 # NORMAL SEARCH
-# ---------------------------------------------------------
+# =========================================================
 
 def search_documents(
     query: str,
@@ -1249,7 +1298,6 @@ def search_documents(
         )
 
         # Support older document structure
-
         if not chunks:
 
             text = document.get(
@@ -1308,7 +1356,6 @@ def search_documents(
     )
 
     # Remove duplicates
-
     final_results = []
 
     seen = set()
@@ -1343,7 +1390,9 @@ def search_documents(
             result["filename"]
         ] = count + 1
 
-        final_results.append(result)
+        final_results.append(
+            result
+        )
 
         if len(final_results) >= MAX_SEARCH_RESULTS:
             break
@@ -1351,9 +1400,9 @@ def search_documents(
     return final_results
 
 
-# ---------------------------------------------------------
+# =========================================================
 # GEMINI ANSWER
-# ---------------------------------------------------------
+# =========================================================
 
 def generate_ai_answer(
     question: str,
@@ -1407,7 +1456,7 @@ STRICT RULES:
 8. If the question asks for an explanation, give a short and relevant explanation.
 9. If the question asks for a summary, provide a concise summary.
 10. If the answer is not available in the provided information, say:
-"I couldn't find that information in the uploaded documents."
+   "I couldn't find that information in the uploaded documents."
 11. Keep the answer concise and directly relevant.
 12. Never invent or guess information.
 
@@ -1444,9 +1493,9 @@ ANSWER:
     return None
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FALLBACK ANSWER
-# ---------------------------------------------------------
+# =========================================================
 
 def fallback_answer(
     question: str,
@@ -1465,9 +1514,9 @@ def fallback_answer(
     return best["text"]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ROOT
-# ---------------------------------------------------------
+# =========================================================
 
 @app.get("/")
 def root():
@@ -1479,9 +1528,26 @@ def root():
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
+# HEALTH
+# =========================================================
+
+@app.get("/health")
+def health():
+
+    return {
+        "status": "healthy",
+        "app": "DocuMind AI",
+        "version": "3.0.0",
+        "gemini_enabled": (
+            gemini_client is not None
+        ),
+    }
+
+
+# =========================================================
 # STATUS
-# ---------------------------------------------------------
+# =========================================================
 
 @app.get("/status")
 def status():
@@ -1500,9 +1566,9 @@ def status():
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DOCUMENT LIST
-# ---------------------------------------------------------
+# =========================================================
 
 @app.get("/documents")
 def get_documents():
@@ -1539,9 +1605,9 @@ def get_documents():
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # UPLOAD
-# ---------------------------------------------------------
+# =========================================================
 
 @app.post("/upload")
 @app.post("/documents/upload")
@@ -1602,7 +1668,6 @@ async def upload_document(
     documents = load_documents()
 
     # Prevent exact duplicate upload
-
     for existing in documents:
 
         if existing.get("sha256") == file_hash:
@@ -1695,7 +1760,9 @@ async def upload_document(
             "chunks_data": chunks_data,
         }
 
-        documents.append(document)
+        documents.append(
+            document
+        )
 
         save_documents(
             documents
@@ -1737,9 +1804,9 @@ async def upload_document(
         )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DELETE DOCUMENT
-# ---------------------------------------------------------
+# =========================================================
 
 @app.delete("/documents/{document_id}")
 def delete_document(
@@ -1796,15 +1863,13 @@ def delete_document(
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # SEARCH
-# ---------------------------------------------------------
+# =========================================================
 
 @app.post("/search")
 @app.post("/documents/search")
-def search(
-    request: SearchRequest
-):
+def search(request: SearchRequest):
 
     query = request.query.strip()
 
@@ -1813,12 +1878,12 @@ def search(
         return {
             "query": query,
             "results": [],
+            "mode": "empty",
         }
 
     documents = load_documents()
 
-    # Exact field extraction happens FIRST
-
+    # Exact field extraction first
     field_results = find_field_values(
         query,
         documents
@@ -1832,6 +1897,7 @@ def search(
             "mode": "exact_field",
         }
 
+    # Normal document search
     results = search_documents(
         query,
         documents
@@ -1844,9 +1910,9 @@ def search(
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ASK DOCUMIND AI
-# ---------------------------------------------------------
+# =========================================================
 
 @app.post("/ask")
 @app.post("/documents/ask")
@@ -1887,10 +1953,9 @@ def ask_documind(
                     result["field"]
                 )
 
-        # -------------------------------------------------
+        # =================================================
         # SINGLE FIELD + SINGLE RESULT
-        # RETURN ONLY THE VALUE
-        # -------------------------------------------------
+        # =================================================
 
         if (
             len(unique_fields) == 1
@@ -1899,9 +1964,9 @@ def ask_documind(
 
             answer = field_results[0]["text"]
 
-        # -------------------------------------------------
+        # =================================================
         # MULTIPLE FIELDS
-        # -------------------------------------------------
+        # =================================================
 
         else:
 
@@ -2012,9 +2077,9 @@ def ask_documind(
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # RUN
-# ---------------------------------------------------------
+# =========================================================
 
 if __name__ == "__main__":
 
