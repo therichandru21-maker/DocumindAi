@@ -7,10 +7,11 @@ import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from fastapi.middleware.cors import CORSMiddleware
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 
 # ---------------------------------------------------------
 # OPTIONAL LIBRARIES
@@ -80,6 +81,7 @@ MAX_FIELD_RESULTS = 6
 MIN_SEARCH_SCORE = 0.08
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
     "gemini-2.5-flash"
@@ -95,13 +97,6 @@ app = FastAPI(
     description="Intelligent Document Knowledge Assistant",
     version="3.0.0",
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # ---------------------------------------------------------
@@ -111,6 +106,10 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Production Vercel frontend
+        "https://documindai-pi.vercel.app",
+
+        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
@@ -156,7 +155,6 @@ class SearchRequest(BaseModel):
 # ---------------------------------------------------------
 
 FIELD_ALIASES = {
-
     "name": [
         "name",
         "student name",
@@ -165,7 +163,6 @@ FIELD_ALIASES = {
         "employee name",
         "customer name",
     ],
-
     "student id": [
         "student id",
         "studentid",
@@ -178,7 +175,6 @@ FIELD_ALIASES = {
         "reg no",
         "reg number",
     ],
-
     "class": [
         "class",
         "class name",
@@ -186,7 +182,6 @@ FIELD_ALIASES = {
         "section",
         "class/section",
     ],
-
     "course": [
         "course",
         "course name",
@@ -195,7 +190,6 @@ FIELD_ALIASES = {
         "degree",
         "department",
     ],
-
     "term": [
         "term",
         "term name",
@@ -203,7 +197,6 @@ FIELD_ALIASES = {
         "academic term",
         "academic year",
     ],
-
     "transaction id": [
         "tran id",
         "transaction id",
@@ -212,14 +205,12 @@ FIELD_ALIASES = {
         "txn id",
         "txn number",
     ],
-
     "pg transaction id": [
         "pg tran id",
         "pg transaction id",
         "pg txn id",
         "pg transaction number",
     ],
-
     "date": [
         "date",
         "transaction date",
@@ -229,21 +220,18 @@ FIELD_ALIASES = {
         "issued date",
         "issue date",
     ],
-
     "time": [
         "time",
         "transaction time",
         "payment time",
         "issued time",
     ],
-
     "amount": [
         "amount",
         "amount paid",
         "paid amount",
         "payment amount",
     ],
-
     "fees": [
         "fees",
         "fee",
@@ -252,7 +240,6 @@ FIELD_ALIASES = {
         "tuition fees",
         "tuition fee",
     ],
-
     "total": [
         "total",
         "total amount",
@@ -262,14 +249,12 @@ FIELD_ALIASES = {
         "amount payable",
         "net amount",
     ],
-
     "email": [
         "email",
         "email address",
         "mail",
         "mail id",
     ],
-
     "phone": [
         "phone",
         "phone number",
@@ -278,14 +263,12 @@ FIELD_ALIASES = {
         "contact number",
         "contact no",
     ],
-
     "address": [
         "address",
         "home address",
         "permanent address",
         "communication address",
     ],
-
     "status": [
         "status",
         "payment status",
@@ -346,7 +329,6 @@ def load_documents() -> List[Dict[str, Any]]:
             "r",
             encoding="utf-8"
         ) as f:
-
             data = json.load(f)
 
         if isinstance(data, list):
@@ -432,7 +414,6 @@ def normalize_text(text: str) -> str:
 
 
 def normalize_label(text: str) -> str:
-
     return normalize_text(text)
 
 
@@ -501,7 +482,6 @@ def extract_docx(path: Path) -> str:
     for paragraph in document.paragraphs:
 
         if paragraph.text.strip():
-
             parts.append(
                 paragraph.text
             )
@@ -598,7 +578,6 @@ def extract_xlsx(path: Path) -> str:
             for value in row:
 
                 if value is not None:
-
                     values.append(
                         str(value)
                     )
@@ -696,9 +675,7 @@ def extract_zip(path: Path) -> str:
 
                 try:
 
-                    data = archive.read(
-                        info
-                    )
+                    data = archive.read(info)
 
                     text = data.decode(
                         "utf-8",
@@ -740,27 +717,21 @@ def extract_document(
     )
 
     if extension == ".pdf":
-
         return extract_pdf(path)
 
     if extension == ".docx":
-
         return extract_docx(path)
 
     if extension == ".pptx":
-
         return extract_pptx(path)
 
     if extension == ".xlsx":
-
         return extract_xlsx(path)
 
     if extension == ".txt":
-
         return extract_txt(path)
 
     if extension == ".zip":
-
         return extract_zip(path)
 
     raise ValueError(
@@ -798,10 +769,7 @@ def create_chunks(
         ).strip()
 
         if chunk:
-
-            chunks.append(
-                chunk
-            )
+            chunks.append(chunk)
 
         if end >= len(words):
             break
@@ -852,8 +820,7 @@ def detect_requested_fields(
 
                 if (
                     best_match is None
-                    or len(alias_normalized)
-                    > len(best_match)
+                    or len(alias_normalized) > len(best_match)
                 ):
 
                     best_match = alias_normalized
@@ -933,7 +900,7 @@ def extract_field_pairs(
         rf"""
         (?<![A-Za-z0-9])
         (?P<label>{label_pattern})
-        [\s.()/_-]*
+        [\s.()/\_-]*
         [:=]
         \s*
         (?P<value>.*?)
@@ -942,7 +909,7 @@ def extract_field_pairs(
             (?:
                 {label_pattern}
             )
-            [\s.()/_-]*
+            [\s.()/\_-]*
             [:=]
             |
             $
@@ -953,22 +920,17 @@ def extract_field_pairs(
 
     pairs = []
 
-    # Keep lines where possible
     lines = re.split(
         r"[\r\n]+",
         text
     )
 
-    # Also scan complete flattened text
-    # because PDF extraction often removes line breaks.
     scan_texts = list(lines)
 
     flattened = clean_text(text)
 
     if flattened:
-        scan_texts.append(
-            flattened
-        )
+        scan_texts.append(flattened)
 
     for scan_text in scan_texts:
 
@@ -1011,7 +973,6 @@ def extract_field_pairs(
                     }
                 )
 
-    # Remove duplicates
     unique = []
 
     seen = set()
@@ -1094,7 +1055,6 @@ def find_field_values(
             if not matching_pairs:
                 continue
 
-            # Prefer exact canonical label
             matching_pairs.sort(
                 key=lambda pair: (
                     0
@@ -1125,7 +1085,6 @@ def find_field_values(
                 }
             )
 
-    # Remove duplicates
     unique_results = []
 
     seen = set()
@@ -1316,7 +1275,6 @@ def search_documents(
             []
         )
 
-        # Support older document structure
         if not chunks:
 
             text = document.get(
@@ -1374,7 +1332,6 @@ def search_documents(
         reverse=True
     )
 
-    # Remove duplicates
     final_results = []
 
     seen = set()
@@ -1669,7 +1626,6 @@ async def upload_document(
 
     documents = load_documents()
 
-    # Prevent exact duplicate upload
     for existing in documents:
 
         if existing.get(
@@ -1886,8 +1842,7 @@ def search(request: SearchRequest):
 
     documents = load_documents()
 
-    # IMPORTANT:
-    # Exact field extraction happens FIRST.
+    # Exact field extraction happens first.
     field_results = find_field_values(
         query,
         documents
