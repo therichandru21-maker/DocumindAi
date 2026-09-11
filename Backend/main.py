@@ -106,16 +106,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        # Production Vercel frontend
         "https://documindai-pi.vercel.app",
-
-        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -337,12 +334,10 @@ def load_documents() -> List[Dict[str, Any]]:
         return []
 
     except Exception as exc:
-
         print(
             "Could not load documents:",
             exc
         )
-
         return []
 
 
@@ -357,7 +352,6 @@ def save_documents(
         "w",
         encoding="utf-8"
     ) as f:
-
         json.dump(
             documents,
             f,
@@ -448,14 +442,12 @@ def extract_pdf(path: Path) -> str:
     for page in reader.pages:
 
         try:
-
             text = page.extract_text()
 
             if text:
                 pages.append(text)
 
         except Exception as exc:
-
             print(
                 "PDF page extraction error:",
                 exc
@@ -493,7 +485,6 @@ def extract_docx(path: Path) -> str:
             values = []
 
             for cell in row.cells:
-
                 values.append(
                     cell.text.strip()
                 )
@@ -536,7 +527,6 @@ def extract_pptx(path: Path) -> str:
                     slide_parts.append(text)
 
         if slide_parts:
-
             slides.append(
                 "\n".join(slide_parts)
             )
@@ -583,7 +573,6 @@ def extract_xlsx(path: Path) -> str:
                     )
 
             if values:
-
                 parts.append(
                     " | ".join(values)
                 )
@@ -606,7 +595,6 @@ def extract_txt(path: Path) -> str:
     for encoding in encodings:
 
         try:
-
             return path.read_text(
                 encoding=encoding
             )
@@ -820,13 +808,12 @@ def detect_requested_fields(
 
                 if (
                     best_match is None
-                    or len(alias_normalized) > len(best_match)
+                    or len(alias_normalized)
+                    > len(best_match)
                 ):
-
                     best_match = alias_normalized
 
         if best_match:
-
             found.append(
                 (
                     canonical,
@@ -859,10 +846,7 @@ def extract_field_pairs(
     aliases = []
 
     for field_aliases in FIELD_ALIASES.values():
-
-        aliases.extend(
-            field_aliases
-        )
+        aliases.extend(field_aliases)
 
     aliases = sorted(
         set(
@@ -900,7 +884,7 @@ def extract_field_pairs(
         rf"""
         (?<![A-Za-z0-9])
         (?P<label>{label_pattern})
-        [\s.()/\_-]*
+        [\s.()/_-]*
         [:=]
         \s*
         (?P<value>.*?)
@@ -909,7 +893,7 @@ def extract_field_pairs(
             (?:
                 {label_pattern}
             )
-            [\s.()/\_-]*
+            [\s.()/_-]*
             [:=]
             |
             $
@@ -930,7 +914,9 @@ def extract_field_pairs(
     flattened = clean_text(text)
 
     if flattened:
-        scan_texts.append(flattened)
+        scan_texts.append(
+            flattened
+        )
 
     for scan_text in scan_texts:
 
@@ -965,13 +951,14 @@ def extract_field_pairs(
             )
 
             if value:
-
                 pairs.append(
                     {
                         "label": label,
                         "value": value,
                     }
                 )
+
+    # Remove duplicates
 
     unique = []
 
@@ -1047,10 +1034,7 @@ def find_field_values(
                 )
 
                 if label_normalized in aliases:
-
-                    matching_pairs.append(
-                        pair
-                    )
+                    matching_pairs.append(pair)
 
             if not matching_pairs:
                 continue
@@ -1085,6 +1069,8 @@ def find_field_values(
                 }
             )
 
+    # Remove duplicates
+
     unique_results = []
 
     seen = set()
@@ -1104,13 +1090,9 @@ def find_field_values(
 
         seen.add(key)
 
-        unique_results.append(
-            result
-        )
+        unique_results.append(result)
 
-    return unique_results[
-        :MAX_FIELD_RESULTS
-    ]
+    return unique_results[:MAX_FIELD_RESULTS]
 
 
 # ---------------------------------------------------------
@@ -1154,8 +1136,7 @@ def calculate_search_score(
 
     exact_match = (
         1.0
-        if query_normalized
-        in text_normalized
+        if query_normalized in text_normalized
         else 0.0
     )
 
@@ -1169,7 +1150,6 @@ def calculate_search_score(
             word in text_normalized
             for word in query_words
         ):
-
             phrase_match = 1.0
 
     score = (
@@ -1208,9 +1188,7 @@ def create_search_snippet(
 
     if position == -1:
 
-        query_tokens = tokenize(
-            query
-        )
+        query_tokens = tokenize(query)
 
         position = -1
 
@@ -1224,10 +1202,7 @@ def create_search_snippet(
                 break
 
     if position == -1:
-
-        return text[
-            :max_length
-        ]
+        return text[:max_length]
 
     start = max(
         0,
@@ -1239,9 +1214,7 @@ def create_search_snippet(
         start + max_length
     )
 
-    snippet = text[
-        start:end
-    ]
+    snippet = text[start:end]
 
     if start > 0:
         snippet = "..." + snippet
@@ -1274,6 +1247,8 @@ def search_documents(
             "chunks_data",
             []
         )
+
+        # Support older document structure
 
         if not chunks:
 
@@ -1332,6 +1307,8 @@ def search_documents(
         reverse=True
     )
 
+    # Remove duplicates
+
     final_results = []
 
     seen = set()
@@ -1366,9 +1343,7 @@ def search_documents(
             result["filename"]
         ] = count + 1
 
-        final_results.append(
-            result
-        )
+        final_results.append(result)
 
         if len(final_results) >= MAX_SEARCH_RESULTS:
             break
@@ -1432,7 +1407,7 @@ STRICT RULES:
 8. If the question asks for an explanation, give a short and relevant explanation.
 9. If the question asks for a summary, provide a concise summary.
 10. If the answer is not available in the provided information, say:
-   "I couldn't find that information in the uploaded documents."
+"I couldn't find that information in the uploaded documents."
 11. Keep the answer concise and directly relevant.
 12. Never invent or guess information.
 
@@ -1626,11 +1601,11 @@ async def upload_document(
 
     documents = load_documents()
 
+    # Prevent exact duplicate upload
+
     for existing in documents:
 
-        if existing.get(
-            "sha256"
-        ) == file_hash:
+        if existing.get("sha256") == file_hash:
 
             return {
                 "success": True,
@@ -1720,9 +1695,7 @@ async def upload_document(
             "chunks_data": chunks_data,
         }
 
-        documents.append(
-            document
-        )
+        documents.append(document)
 
         save_documents(
             documents
@@ -1829,7 +1802,9 @@ def delete_document(
 
 @app.post("/search")
 @app.post("/documents/search")
-def search(request: SearchRequest):
+def search(
+    request: SearchRequest
+):
 
     query = request.query.strip()
 
@@ -1842,7 +1817,8 @@ def search(request: SearchRequest):
 
     documents = load_documents()
 
-    # Exact field extraction happens first.
+    # Exact field extraction happens FIRST
+
     field_results = find_field_values(
         query,
         documents
@@ -1921,9 +1897,7 @@ def ask_documind(
             and len(field_results) == 1
         ):
 
-            answer = field_results[0][
-                "text"
-            ]
+            answer = field_results[0]["text"]
 
         # -------------------------------------------------
         # MULTIPLE FIELDS
@@ -1948,8 +1922,7 @@ def ask_documind(
                 used.add(key)
 
                 readable_field = (
-                    result["field"]
-                    .title()
+                    result["field"].title()
                 )
 
                 answer_parts.append(
